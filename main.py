@@ -3,14 +3,14 @@ from fastapi import FastAPI, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 import csv, io, time, os, json, unicodedata, re
 import httpx
 
 # ----- Config -----
 CSV_URL = os.environ.get("CSV_URL", "").strip()
 CACHE_TTL = 60  # secondes
-_cache = {"at": 0.0, "rows": []}
+_cache = {"at": 0.0, "rows": [], "meta": {}}
 
 # ----- Schémas -----
 class Ingredient(BaseModel):
@@ -38,7 +38,7 @@ class Recipe(BaseModel):
 # ----- App -----
 app = FastAPI(title="Cocktail Recipes API", version="1.0.0")
 
-# CORS (ouvre tout pour démarrer ; resserre plus tard si besoin)
+# CORS permissif pour démarrer
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,7 +47,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Log des routes au démarrage (utile sur Render)
+# Log des routes au démarrage
 @app.on_event("startup")
 async def _log_routes():
     try:
@@ -55,23 +55,77 @@ async def _log_routes():
     except Exception:
         pass
 
+# ----- Utils entêtes -----
+CANONICAL = [
+    "name","slug","glass","method","ice","garnish",
+    "ingredients","spec_ml","spec_oz","history","tags",
+    "abv_est","notes","source","last_update"
+]
+CANON_SET = set(CANONICAL)
+
+def norm_header(h: str) -> str:
+    # Nettoie: trim, lowercase, enlève accents, remplace non-alnum par _
+    h = (h or "").strip().lower()
+    h = unicodedata.normalize("NFD", h)
+    h = "".join(c for c in h if unicodedata.category(c) != "Mn")
+    h = re.sub(r"[^a-z0-9]+", "_", h).strip("_")
+    # Remap légers
+    remap = {
+        "specml": "spec_ml",
+        "specoz": "spec_oz",
+        "lastupdate": "last_update",
+    }
+    return remap.get(h, h)
+
+def build_header_map(fieldnames: List[str]) -> Dict[str, str]:
+    # Mappe entêtes d'origine -> entêtes canoniques si proches
+    mapping: Dict[str, str] = {}
+    used = set()
+    for orig in fieldnames or []:
+        n = norm_header(orig)
+        if n in CANON_SET and n not in used:
+            mapping[orig] = n
+            used.add(n)
+        else:
+            # Si ça ne colle pas, garde l'original (on ne jette pas l'info)
+            mapping[orig] = orig
+    return mapping
+
+def remap_row(row: dict, hmap: Dict[str, str]) -> dict:
+    out = {}
+    for k, v in row.items():
+        out[hmap.get(k, k)] = v
+    return out
+
 # ----- Routes utilitaires -----
 @app.get("/", include_in_schema=False)
 def root():
-    # Accueil JSON simple (plus robuste que la redirection)
     return JSONResponse({
         "ok": True,
-        "endpoints": ["/health", "/recipes", "/recipes/{slug}", "/docs"]
+        "endpoints": ["/health", "/recipes", "/recipes/{slug}", "/docs", "/debug/source"]
     })
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    # Évite le 404 du favicon
     return Response(status_code=204)
 
 @app.get("/health")
 async def health():
     return {"ok": True, "csv_url_set": bool(CSV_URL)}
+
+@app.get("/debug/source", include_in_schema=False)
+async def debug_source():
+    # Montre ce que l'API a détecté (délimiteur, entêtes après normalisation, nb lignes)
+    await load_rows(force=True)  # refresh meta
+    meta = _cache.get("meta", {})
+    return {
+        "csv_url_set": bool(CSV_URL),
+        "detected_delimiter": meta.get("delimiter"),
+        "fieldnames_original": meta.get("fieldnames_original"),
+        "header_map": meta.get("header_map"),
+        "rows_count": len(_cache.get("rows") or []),
+        "note": "Assure-toi d'utiliser Fichier > Publier sur le web (format CSV) sur l'onglet contenant les recettes."
+    }
 
 # ----- Endpoints métier -----
 @app.get("/recipes", response_model=List[Recipe])
@@ -94,36 +148,70 @@ async def list_recipes(q: Optional[str] = None, tag: Optional[str] = None):
 @app.get("/recipes/{slug}", response_model=Recipe)
 async def get_recipe(slug: str):
     rows = await load_rows()
+    wanted = slugify(slug.strip())
     for r in rows:
-        s = r.get("slug") or slugify(r.get("name", ""))
-        if s == slug:
+        raw_slug = (r.get("slug") or "").strip()
+        current = slugify(raw_slug) if raw_slug else slugify(r.get("name", ""))
+        if current == wanted:
             return normalize_row(r)
     raise HTTPException(404, detail="Not found")
 
-# ----- Helpers -----
-async def load_rows():
+# ----- Chargement CSV -----
+async def load_rows(force: bool = False):
     if not CSV_URL:
         raise HTTPException(500, detail="CSV_URL environment variable not set")
 
     now = time.time()
-    if _cache["rows"] and (now - _cache["at"] < CACHE_TTL):
+    if not force and _cache["rows"] and (now - _cache["at"] < CACHE_TTL):
         return _cache["rows"]
 
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.get(CSV_URL)
         resp.raise_for_status()
         text = resp.text
 
+    # Nettoyage BOM + trim
+    text = text.lstrip("\ufeff")
+
+    # Détecte le délimiteur
+    try:
+        sample = text[:2048]
+        sniffer = csv.Sniffer()
+        dialect = sniffer.sniff(sample, delimiters=[",", ";", "\t"])
+        delimiter = dialect.delimiter
+    except Exception:
+        # Fallback: virgule, puis ; si la virgule ne marche pas
+        delimiter = ","
+
+    # Lecture DictReader
     buf = io.StringIO(text)
-    reader = csv.DictReader(buf)
-    rows = [r for r in reader if (r.get("name") or "").strip()]
+    reader = csv.DictReader(buf, delimiter=delimiter)
+    fieldnames = reader.fieldnames or []
+
+    # Construis le header map
+    hmap = build_header_map(fieldnames)
+
+    # Remap + filtre lignes vides (name obligatoire, en tolérant les variantes d'entête)
+    rows_raw = [remap_row(r, hmap) for r in reader]
+    def get_name(d):
+        # récupère 'name' même si l'entête originale était un peu différente
+        return (d.get("name") or d.get("Name") or d.get("NAME") or "").strip()
+
+    rows = [r for r in rows_raw if get_name(r)]
 
     _cache["rows"] = rows
     _cache["at"] = now
+    _cache["meta"] = {
+        "delimiter": delimiter,
+        "fieldnames_original": fieldnames,
+        "header_map": hmap
+    }
     return rows
 
+# ----- Normalisation recette -----
 def normalize_row(raw: dict) -> Recipe:
-    slug = raw.get("slug") or slugify(raw.get("name", ""))
+    raw_slug = (raw.get("slug") or "").strip()
+    slug = slugify(raw_slug) if raw_slug else slugify(raw.get("name", ""))
     # ingredients en JSON (si présent)
     ingredients: Optional[List[Ingredient]] = None
     ings_val = (raw.get("ingredients") or "").strip()
@@ -134,7 +222,9 @@ def normalize_row(raw: dict) -> Recipe:
         except Exception:
             ingredients = None
 
+    # tags CSV -> liste
     tags = [t.strip() for t in (raw.get("tags") or "").split(",") if t.strip()]
+    # abv
     try:
         abv = float(raw.get("abv_est")) if raw.get("abv_est") else None
     except Exception:
@@ -165,7 +255,7 @@ def slugify(s: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
     return s
 
-# ----- Handler 404 lisible -----
+# ----- 404 propre -----
 @app.exception_handler(404)
 async def not_found(_: Request, __):
     return JSONResponse(
