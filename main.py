@@ -1,15 +1,18 @@
 # main.py
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import csv, io, time, os, json, unicodedata, re
 import httpx
 
+# ----- Config -----
 CSV_URL = os.environ.get("CSV_URL", "").strip()
 CACHE_TTL = 60  # secondes
 _cache = {"at": 0.0, "rows": []}
 
+# ----- Schémas -----
 class Ingredient(BaseModel):
     item: str
     ml: Optional[float] = None
@@ -32,9 +35,10 @@ class Recipe(BaseModel):
     source: Optional[str] = None
     last_update: Optional[str] = None
 
+# ----- App -----
 app = FastAPI(title="Cocktail Recipes API", version="1.0.0")
 
-# CORS (ouvre tout pour démarrer ; resserre plus tard si besoin)
+# CORS ouvert pour démarrer (resserre plus tard si besoin)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -43,10 +47,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ----- Routes utilitaires -----
+@app.get("/", include_in_schema=False)
+def index():
+    # Redirige la racine vers la doc interactive
+    return RedirectResponse(url="/docs")
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    # Évite les 404 pour le favicon
+    return Response(status_code=204)
+
 @app.get("/health")
 async def health():
     return {"ok": True, "csv_url_set": bool(CSV_URL)}
 
+# ----- Endpoints métier -----
 @app.get("/recipes", response_model=List[Recipe])
 async def list_recipes(q: Optional[str] = None, tag: Optional[str] = None):
     rows = await load_rows()
@@ -73,6 +89,7 @@ async def get_recipe(slug: str):
             return normalize_row(r)
     raise HTTPException(404, detail="Not found")
 
+# ----- Helpers -----
 async def load_rows():
     if not CSV_URL:
         raise HTTPException(500, detail="CSV_URL environment variable not set")
@@ -96,15 +113,16 @@ async def load_rows():
 
 def normalize_row(raw: dict) -> Recipe:
     slug = raw.get("slug") or slugify(raw.get("name", ""))
-    # ingredients: JSON array si présent
-    ings_val = (raw.get("ingredients") or "").strip()
+    # ingredients en JSON (si présent)
     ingredients: Optional[List[Ingredient]] = None
+    ings_val = (raw.get("ingredients") or "").strip()
     if ings_val.startswith("["):
         try:
             tmp = json.loads(ings_val)
             ingredients = [Ingredient(**x) for x in tmp]
         except Exception:
             ingredients = None
+
     tags = [t.strip() for t in (raw.get("tags") or "").split(",") if t.strip()]
     try:
         abv = float(raw.get("abv_est")) if raw.get("abv_est") else None
