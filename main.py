@@ -8,7 +8,7 @@ import csv, io, time, os, json, unicodedata, re
 import httpx
 
 # ----- Config -----
-CSV_URL = os.environ.get("CSV_URL", "").strip()
+CSV_URL = os.environ.get("https://docs.google.com/spreadsheets/d/e/2PACX-1vT_W9yCaHHXIFfEYumhyBBIoWMbrSnyDPjSPo8hosTy63hp_R5ZsX0Bdmirwi9LtPMFvg5VA5OfoThn/pubhtml?gid=1000462936&single=true", "").strip()
 CACHE_TTL = 60  # secondes
 _cache = {"at": 0.0, "rows": [], "meta": {}}
 
