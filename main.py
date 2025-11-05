@@ -1,7 +1,7 @@
 # main.py
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import csv, io, time, os, json, unicodedata, re
@@ -38,7 +38,7 @@ class Recipe(BaseModel):
 # ----- App -----
 app = FastAPI(title="Cocktail Recipes API", version="1.0.0")
 
-# CORS ouvert pour démarrer (resserre plus tard si besoin)
+# CORS (ouvre tout pour démarrer ; resserre plus tard si besoin)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,15 +47,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Log des routes au démarrage (utile sur Render)
+@app.on_event("startup")
+async def _log_routes():
+    try:
+        print("ROUTES:", [r.path for r in app.router.routes])
+    except Exception:
+        pass
+
 # ----- Routes utilitaires -----
 @app.get("/", include_in_schema=False)
-def index():
-    # Redirige la racine vers la doc interactive
-    return RedirectResponse(url="/docs")
+def root():
+    # Accueil JSON simple (plus robuste que la redirection)
+    return JSONResponse({
+        "ok": True,
+        "endpoints": ["/health", "/recipes", "/recipes/{slug}", "/docs"]
+    })
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    # Évite les 404 pour le favicon
+    # Évite le 404 du favicon
     return Response(status_code=204)
 
 @app.get("/health")
@@ -153,3 +164,11 @@ def slugify(s: str) -> str:
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
     return s
+
+# ----- Handler 404 lisible -----
+@app.exception_handler(404)
+async def not_found(_: Request, __):
+    return JSONResponse(
+        {"ok": False, "error": "Not Found", "hint": "Try /docs or /recipes"},
+        status_code=404
+    )
