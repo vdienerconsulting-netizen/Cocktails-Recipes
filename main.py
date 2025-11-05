@@ -8,12 +8,16 @@ import csv, io, time, os, json, unicodedata, re
 import httpx
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
-# ----- Config -----
+# ----------------------------------------------------------
+# CONFIG
+# ----------------------------------------------------------
 CSV_URL = os.environ.get("CSV_URL", "").strip()
 CACHE_TTL = 60  # secondes
 _cache = {"at": 0.0, "rows": [], "meta": {}}
 
-# ----- Schémas -----
+# ----------------------------------------------------------
+# MODELES
+# ----------------------------------------------------------
 class Ingredient(BaseModel):
     item: str
     ml: Optional[float] = None
@@ -36,10 +40,11 @@ class Recipe(BaseModel):
     source: Optional[str] = None
     last_update: Optional[str] = None
 
-# ----- App -----
-app = FastAPI(title="Cocktail Recipes API", version="1.2.0")
+# ----------------------------------------------------------
+# APP
+# ----------------------------------------------------------
+app = FastAPI(title="Cocktail Recipes API", version="1.3.0")
 
-# CORS permissif pour démarrer
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -48,7 +53,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ----- Utils -----
+# ----------------------------------------------------------
+# UTILS
+# ----------------------------------------------------------
 CANONICAL = [
     "name","slug","glass","method","ice","garnish",
     "ingredients","spec_ml","spec_oz","history","tags",
@@ -61,12 +68,7 @@ def norm_header(h: str) -> str:
     h = unicodedata.normalize("NFD", h)
     h = "".join(c for c in h if unicodedata.category(c) != "Mn")
     h = re.sub(r"[^a-z0-9]+", "_", h).strip("_")
-    remap = {
-        "specml": "spec_ml",
-        "spec_oz_": "spec_oz",
-        "specoz": "spec_oz",
-        "lastupdate": "last_update",
-    }
+    remap = {"specml": "spec_ml", "specoz": "spec_oz", "lastupdate": "last_update"}
     return remap.get(h, h)
 
 def build_header_map(fieldnames: List[str]) -> Dict[str, str]:
@@ -81,9 +83,6 @@ def build_header_map(fieldnames: List[str]) -> Dict[str, str]:
             mapping[orig] = orig
     return mapping
 
-def remap_row(row: dict, hmap: Dict[str, str]) -> dict:
-    return {hmap.get(k, k): v for k, v in row.items()}
-
 def slugify(s: str) -> str:
     s = s.lower()
     s = unicodedata.normalize("NFD", s)
@@ -92,14 +91,10 @@ def slugify(s: str) -> str:
     return s
 
 def google_pubhtml_to_csv(url: str) -> str:
-    """
-    Accepte un lien Google Sheets 'pubhtml?...' et le convertit en '.../pub?...&output=csv'.
-    Laisse inchangé si ce n'est pas un lien Google Sheets pubhtml.
-    """
+    """Convertit automatiquement un lien pubhtml en lien CSV"""
     try:
         u = urlparse(url)
         if "docs.google.com" in u.netloc and "/spreadsheets/" in u.path and u.path.endswith("/pubhtml"):
-            # remplace /pubhtml par /pub
             new_path = u.path[:-7]  # retire 'pubhtml'
             if not new_path.endswith("/"):
                 new_path += "/"
@@ -113,17 +108,15 @@ def google_pubhtml_to_csv(url: str) -> str:
     except Exception:
         return url
 
-# ----- Routes utilitaires -----
+# ----------------------------------------------------------
+# ROUTES
+# ----------------------------------------------------------
 @app.get("/", include_in_schema=False)
 def root():
-    return JSONResponse({
+    return {
         "ok": True,
-        "endpoints": ["/health", "/recipes", "/recipes/{slug}", "/docs", "/debug/source"]
-    })
-
-@app.get("/favicon.ico", include_in_schema=False)
-def favicon():
-    return Response(status_code=204)
+        "endpoints": ["/health", "/recipes", "/recipes/names", "/recipes/{slug}", "/debug/source"]
+    }
 
 @app.get("/health")
 async def health():
@@ -131,47 +124,38 @@ async def health():
 
 @app.get("/debug/source", include_in_schema=False)
 async def debug_source():
-    await load_rows(force=True)  # refresh meta
+    await load_rows(force=True)
     meta = _cache.get("meta", {})
     return {
         "csv_url_effective": meta.get("effective_url"),
-        "detected_delimiter": meta.get("delimiter"),
-        "fieldnames_original": meta.get("fieldnames_original"),
-        "header_map": meta.get("header_map"),
         "rows_count": len(_cache.get("rows") or []),
-        "note": "Si rows_count = 0, vérifie l'onglet publié et les entêtes. Le service convertit automatiquement pubhtml -> output=csv."
+        "fieldnames_original": meta.get("fieldnames_original"),
+        "note": "Si rows_count = 0, vérifie le lien Google Sheet et le partage public."
     }
 
-# ----- Endpoints métier -----
 @app.get("/recipes", response_model=List[Recipe])
-async def list_recipes(q: Optional[str] = None, tag: Optional[str] = None):
+async def list_recipes():
     rows = await load_rows()
-    data = [normalize_row(r) for r in rows]
-    if q:
-        ql = q.lower()
-        data = [
-            r for r in data
-            if ql in (r.name or "").lower()
-            or ql in (r.spec_ml or "").lower()
-            or ql in json.dumps([ing.dict() for ing in (r.ingredients or [])]).lower()
-        ]
-    if tag:
-        tl = tag.lower()
-        data = [r for r in data if any((t or "").lower() == tl for t in r.tags)]
-    return data
+    return [normalize_row(r) for r in rows]
 
 @app.get("/recipes/{slug}", response_model=Recipe)
 async def get_recipe(slug: str):
     rows = await load_rows()
     wanted = slugify(slug.strip())
     for r in rows:
-        raw_slug = (r.get("slug") or "").strip()
-        current = slugify(raw_slug) if raw_slug else slugify(r.get("name", ""))
+        current = slugify(r.get("slug") or r.get("name", ""))
         if current == wanted:
             return normalize_row(r)
     raise HTTPException(404, detail="Not found")
 
-# ----- Chargement CSV -----
+@app.get("/recipes/names", response_model=List[str])
+async def recipe_names():
+    rows = await load_rows()
+    return [(r.get("name") or "").strip() for r in rows if (r.get("name") or "").strip()]
+
+# ----------------------------------------------------------
+# CHARGEMENT CSV
+# ----------------------------------------------------------
 async def load_rows(force: bool = False):
     if not CSV_URL:
         raise HTTPException(500, detail="CSV_URL environment variable not set")
@@ -180,109 +164,80 @@ async def load_rows(force: bool = False):
     if not force and _cache["rows"] and (now - _cache["at"] < CACHE_TTL):
         return _cache["rows"]
 
-    # Convertit auto pubhtml -> CSV
     effective_url = google_pubhtml_to_csv(CSV_URL)
 
     async with httpx.AsyncClient(
         timeout=25,
-        follow_redirects=True,  # <— important pour gérer le 307
-        headers={
-            "User-Agent": "cocktail-recipes-api/1.2",
-            "Accept": "text/csv,*/*",
-        },
+        follow_redirects=True,
+        headers={"User-Agent": "cocktail-recipes-api/1.3", "Accept": "text/csv,*/*"},
     ) as client:
         resp = await client.get(effective_url)
         resp.raise_for_status()
         text = resp.text
 
-    # Si jamais Google renvoie encore de l'HTML, on le dit clairement
-    if "<html" in text.lower() or "<!doctype html" in text.lower():
+    if "<html" in text.lower():
         raise HTTPException(
             500,
-            detail=(
-                "CSV_URL does not return raw CSV. "
-                "Ensure link is a published/export CSV (output=csv) "
-                "or share the sheet and use /export?format=csv&gid=..."
-            ),
+            detail="CSV_URL ne renvoie pas un CSV brut. Vérifie le lien 'output=csv' et les droits de partage."
         )
 
-    text = text.lstrip("\ufeff")  # enlève BOM
+    text = text.lstrip("\ufeff")
 
-    # Détection du délimiteur
     delimiter = ","
     try:
-        sample = text[:2048]
         sniffer = csv.Sniffer()
-        dialect = sniffer.sniff(sample, delimiters=[",", ";", "\t"])
+        dialect = sniffer.sniff(text[:1024], delimiters=[",", ";", "\t"])
         delimiter = dialect.delimiter
     except Exception:
-        first_line = text.splitlines()[0] if text.splitlines() else ""
-        if first_line.count(";") > first_line.count(","):
-            delimiter = ";"
+        pass
 
-    buf = io.StringIO(text)
-    reader = csv.DictReader(buf, delimiter=delimiter)
-    fieldnames = reader.fieldnames or []
+    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+    hmap = build_header_map(reader.fieldnames or [])
+    rows = [{hmap.get(k, k): v for k, v in row.items()} for row in reader]
+    rows = [r for r in rows if (r.get("name") or "").strip()]
 
-    hmap = build_header_map(fieldnames)
-    rows_raw = [{hmap.get(k, k): v for k, v in r.items()} for r in reader]
-
-    def get_name(d):
-        return (d.get("name") or d.get("Name") or d.get("NAME") or "").strip()
-
-    rows = [r for r in rows_raw if get_name(r)]
-
-    _cache["rows"] = rows
-    _cache["at"] = now
-    _cache["meta"] = {
-        "effective_url": effective_url,
-        "delimiter": delimiter,
-        "fieldnames_original": fieldnames,
-        "header_map": hmap,
-    }
+    _cache.update({
+        "rows": rows,
+        "at": now,
+        "meta": {"effective_url": effective_url, "fieldnames_original": reader.fieldnames},
+    })
     return rows
 
-# ----- Normalisation recette -----
+# ----------------------------------------------------------
+# NORMALISATION
+# ----------------------------------------------------------
 def normalize_row(raw: dict) -> Recipe:
-    raw_slug = (raw.get("slug") or "").strip()
-    slug = slugify(raw_slug) if raw_slug else slugify(raw.get("name", ""))
-    ingredients: Optional[List[Ingredient]] = None
+    slug = slugify(raw.get("slug") or raw.get("name", ""))
+    tags = [t.strip() for t in (raw.get("tags") or "").split(",") if t.strip()]
+    ingredients = None
     ings_val = (raw.get("ingredients") or "").strip()
     if ings_val.startswith("["):
         try:
-            tmp = json.loads(ings_val)
-            ingredients = [Ingredient(**x) for x in tmp]
+            data = json.loads(ings_val)
+            ingredients = [Ingredient(**x) for x in data]
         except Exception:
-            ingredients = None
-
-    tags = [t.strip() for t in (raw.get("tags") or "").split(",") if t.strip()]
-    try:
-        abv = float(raw.get("abv_est")) if raw.get("abv_est") else None
-    except Exception:
-        abv = None
-
+            pass
     return Recipe(
         name=(raw.get("name") or "").strip(),
         slug=slug,
-        glass=raw.get("glass") or None,
-        method=raw.get("method") or None,
-        ice=raw.get("ice") or None,
-        garnish=raw.get("garnish") or None,
+        glass=raw.get("glass"),
+        method=raw.get("method"),
+        ice=raw.get("ice"),
+        garnish=raw.get("garnish"),
         ingredients=ingredients,
-        spec_ml=raw.get("spec_ml") or None,
-        spec_oz=raw.get("spec_oz") or None,
-        history=raw.get("history") or None,
+        spec_ml=raw.get("spec_ml"),
+        spec_oz=raw.get("spec_oz"),
+        history=raw.get("history"),
         tags=tags,
-        abv_est=abv,
-        notes=raw.get("notes") or None,
-        source=raw.get("source") or None,
-        last_update=raw.get("last_update") or None,
+        abv_est=float(raw.get("abv_est")) if (raw.get("abv_est") or "").replace(".", "").isdigit() else None,
+        notes=raw.get("notes"),
+        source=raw.get("source"),
+        last_update=raw.get("last_update"),
     )
 
-# ----- 404 propre -----
+# ----------------------------------------------------------
+# ERREUR 404
+# ----------------------------------------------------------
 @app.exception_handler(404)
 async def not_found(_: Request, __):
-    return JSONResponse(
-        {"ok": False, "error": "Not Found", "hint": "Try /docs or /recipes"},
-        status_code=404
-    )
+    return JSONResponse({"ok": False, "error": "Not Found", "hint": "Try /docs or /recipes"}, status_code=404)
