@@ -37,7 +37,7 @@ class Recipe(BaseModel):
     last_update: Optional[str] = None
 
 # ----- App -----
-app = FastAPI(title="Cocktail Recipes API", version="1.1.0")
+app = FastAPI(title="Cocktail Recipes API", version="1.2.0")
 
 # CORS permissif pour démarrer
 app.add_middleware(
@@ -93,8 +93,8 @@ def slugify(s: str) -> str:
 
 def google_pubhtml_to_csv(url: str) -> str:
     """
-    - Accepte un lien Google Sheets 'pubhtml?...' et le convertit en '.../pub?...&output=csv'
-    - Laisse inchangé si ce n'est pas un lien Google Sheets pubhtml.
+    Accepte un lien Google Sheets 'pubhtml?...' et le convertit en '.../pub?...&output=csv'.
+    Laisse inchangé si ce n'est pas un lien Google Sheets pubhtml.
     """
     try:
         u = urlparse(url)
@@ -113,7 +113,7 @@ def google_pubhtml_to_csv(url: str) -> str:
     except Exception:
         return url
 
-# ----- Routes -----
+# ----- Routes utilitaires -----
 @app.get("/", include_in_schema=False)
 def root():
     return JSONResponse({
@@ -142,6 +142,7 @@ async def debug_source():
         "note": "Si rows_count = 0, vérifie l'onglet publié et les entêtes. Le service convertit automatiquement pubhtml -> output=csv."
     }
 
+# ----- Endpoints métier -----
 @app.get("/recipes", response_model=List[Recipe])
 async def list_recipes(q: Optional[str] = None, tag: Optional[str] = None):
     rows = await load_rows()
@@ -179,15 +180,33 @@ async def load_rows(force: bool = False):
     if not force and _cache["rows"] and (now - _cache["at"] < CACHE_TTL):
         return _cache["rows"]
 
-    # Convertit automatiquement un lien pubhtml Google en CSV
+    # Convertit auto pubhtml -> CSV
     effective_url = google_pubhtml_to_csv(CSV_URL)
 
-    async with httpx.AsyncClient(timeout=25) as client:
-        resp = await client.get(effective_url, headers={"Accept": "text/csv,*/*"})
+    async with httpx.AsyncClient(
+        timeout=25,
+        follow_redirects=True,  # <— important pour gérer le 307
+        headers={
+            "User-Agent": "cocktail-recipes-api/1.2",
+            "Accept": "text/csv,*/*",
+        },
+    ) as client:
+        resp = await client.get(effective_url)
         resp.raise_for_status()
         text = resp.text
 
-    text = text.lstrip("\ufeff")  # BOM
+    # Si jamais Google renvoie encore de l'HTML, on le dit clairement
+    if "<html" in text.lower() or "<!doctype html" in text.lower():
+        raise HTTPException(
+            500,
+            detail=(
+                "CSV_URL does not return raw CSV. "
+                "Ensure link is a published/export CSV (output=csv) "
+                "or share the sheet and use /export?format=csv&gid=..."
+            ),
+        )
+
+    text = text.lstrip("\ufeff")  # enlève BOM
 
     # Détection du délimiteur
     delimiter = ","
@@ -197,7 +216,6 @@ async def load_rows(force: bool = False):
         dialect = sniffer.sniff(sample, delimiters=[",", ";", "\t"])
         delimiter = dialect.delimiter
     except Exception:
-        # fallback: si beaucoup de ';' sur la première ligne, prends ';'
         first_line = text.splitlines()[0] if text.splitlines() else ""
         if first_line.count(";") > first_line.count(","):
             delimiter = ";"
@@ -207,7 +225,7 @@ async def load_rows(force: bool = False):
     fieldnames = reader.fieldnames or []
 
     hmap = build_header_map(fieldnames)
-    rows_raw = [remap_row(r, hmap) for r in reader]
+    rows_raw = [{hmap.get(k, k): v for k, v in r.items()} for r in reader]
 
     def get_name(d):
         return (d.get("name") or d.get("Name") or d.get("NAME") or "").strip()
@@ -220,7 +238,7 @@ async def load_rows(force: bool = False):
         "effective_url": effective_url,
         "delimiter": delimiter,
         "fieldnames_original": fieldnames,
-        "header_map": hmap
+        "header_map": hmap,
     }
     return rows
 
