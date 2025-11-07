@@ -13,6 +13,10 @@ from urllib.parse import urlparse, parse_qs
 # ----------------------------------------------------------
 CSV_URL = os.environ.get("CSV_URL", "").strip()
 ACCESS_CODE = os.environ.get("ACCESS_CODE", "orgeatsalécestmeilleur")
+# Durée du cookie d’accès en secondes (None => cookie de session)
+ACCESS_TTL = os.environ.get("ACCESS_TTL")
+ACCESS_TTL = int(ACCESS_TTL) if (ACCESS_TTL and ACCESS_TTL.isdigit()) else None
+
 CACHE_TTL = 60  # secondes
 _cache = {"at": 0.0, "rows": [], "meta": {}}
 
@@ -52,7 +56,7 @@ class RecipeSimple(BaseModel):
 # ----------------------------------------------------------
 # APP
 # ----------------------------------------------------------
-app = FastAPI(title="Cocktail Recipes API", version="1.9.0")
+app = FastAPI(title="Cocktail Recipes API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,7 +66,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Fichiers statiques (visuels)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ----------------------------------------------------------
@@ -105,31 +108,29 @@ def slugify(s: str) -> str:
 def google_pubhtml_to_csv(url: str) -> str:
     try:
         u = urlparse(url)
-        if "docs.google.com" in u.netloc and "/spreadsheets/" in u.path:
-            if "/d/e/" in u.path:
-                parts = u.path.split("/")
-                if len(parts) >= 5:
-                    doc_id = parts[4]
-                    q = parse_qs(u.query, keep_blank_values=True)
-                    gid = q.get("gid", ["0"])[0]
-                    return f"https://docs.google.com/spreadsheets/d/e/{doc_id}/pub?gid={gid}&single=true&output=csv"
+        if "docs.google.com" in u.netloc and "/spreadsheets/" in u.path and "/d/e/" in u.path:
+            parts = u.path.split("/")
+            if len(parts) >= 5:
+                doc_id = parts[4]
+                q = parse_qs(u.query, keep_blank_values=True)
+                gid = q.get("gid", ["0"])[0]
+                return f"https://docs.google.com/spreadsheets/d/e/{doc_id}/pub?gid={gid}&single=true&output=csv"
         return url
     except Exception:
         return url
 
 # ----------------------------------------------------------
-# ACCES (gate)
+# ACCES
 # ----------------------------------------------------------
 def has_access(request: Request) -> bool:
     return request.cookies.get("cv_access") == "1"
 
 def require_access(request: Request):
     if not has_access(request):
-        # On renvoie 401 côté API, et la page login côté /
         raise HTTPException(401, detail="Unauthorized")
 
 # ----------------------------------------------------------
-# PAGES HTML — Dark + hero qui devient header
+# HTML — Dark + hero qui devient header (titre plus petit)
 # ----------------------------------------------------------
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="fr">
@@ -144,11 +145,15 @@ LOGIN_HTML = """<!DOCTYPE html>
     :root{ --bg:#0f0f14; --panel:#17181f; --line:#2a2b31; --text:#e5e7eb; --muted:#9aa0a6; }
     *{margin:0;padding:0;box-sizing:border-box}
     body{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    .wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
-    .card{ width:100%; max-width:460px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
-    .head{ padding:18px; border-bottom:1px solid var(--line); text-align:center; }
-    .title{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:30px; }
-    .body{ padding:18px; }
+    .logos{ text-align:center; padding:20px 16px; border-bottom:1px solid var(--line); }
+    .logos img{ display:block; margin:0 auto 8px; }
+    .logos .title{ width:min(52%, 520px); }      /* plus petit */
+    .logos .subtitle{ width:min(45%, 440px); opacity:.9; }
+    .wrap{ min-height:calc(100vh - 120px); display:flex; align-items:center; justify-content:center; padding:24px; }
+    .card{ width:100%; max-width:440px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
+    .head{ padding:16px; border-bottom:1px solid var(--line); text-align:center; }
+    .title{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:26px; }
+    .body{ padding:16px; }
     label{ display:block; font-size:14px; color:var(--muted); margin-bottom:6px; }
     input[type="password"]{
       width:100%; border:none; border-bottom:1px solid var(--text);
@@ -156,10 +161,7 @@ LOGIN_HTML = """<!DOCTYPE html>
     }
     .row{ margin-top:14px; display:flex; justify-content:center; }
     button{ all:unset; border:1px solid var(--text); color:var(--text); padding:8px 14px; border-radius:4px; cursor:pointer; }
-    .logos{ text-align:center; padding:16px 0 6px; border-bottom:1px solid var(--line); background:transparent; }
-    .logos img{ display:block; margin:0 auto 10px; height:auto; }
-    .logos .title{ width:min(70%,640px); }
-    .logos .subtitle{ width:min(60%,520px); opacity:.9; }
+    .hint{ text-align:center; color:var(--muted); font-size:12px; margin-top:10px; }
   </style>
 </head>
 <body>
@@ -174,6 +176,7 @@ LOGIN_HTML = """<!DOCTYPE html>
         <label for="code">Code d’accès</label>
         <input id="code" name="code" type="password" placeholder="••••••••" required />
         <div class="row"><button type="submit">Valider</button></div>
+        <div class="hint">Astuce: ajoute /logout à l’URL pour sortir.</div>
       </div>
     </form>
   </div>
@@ -191,45 +194,48 @@ HTML_APP = """<!DOCTYPE html>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Bayon&family=Big+Shoulders+Text:wght@400;700&family=Raleway:wght@300;400&display=swap" rel="stylesheet">
   <style>
-    :root{ --bg:#0f0f14; --panel:#17181f; --line:#2a2b31; --text:#e5e7eb; --muted:#9aa0a6; --headerH:96px; }
+    :root{
+      --bg:#0f0f14; --panel:#17181f; --line:#2a2b31; --text:#e5e7eb; --muted:#9aa0a6;
+      --headerH:84px;                 /* header réduit plus petit */
+      --titleW_full:52vw;             /* largeur titres en plein écran */
+      --subtitleW_full:46vw;
+      --titleW_small:220px;           /* largeur titres réduits */
+      --subtitleW_small:190px;
+      --anim_header:.7s ease;         /* durée/aisance réduction */
+      --anim_page:.45s ease .15s;     /* fade-in contenu */
+      --intro_min:900;                /* ms: durée minimale affichage du hero */
+    }
     *{margin:0;padding:0;box-sizing:border-box}
     body{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 
-    /* -------- HERO qui devient HEADER -------- */
+    /* HERO->HEADER */
     .heroHeader{
       position: fixed; inset:0; z-index:999;
       display:flex; flex-direction:column; align-items:center; justify-content:center;
       background:var(--bg); border-bottom:1px solid transparent;
-      transition: height .7s ease, padding .7s ease, transform .7s ease, border-color .7s ease, background .7s ease;
+      transition: height var(--anim_header), padding var(--anim_header), transform var(--anim_header), border-color var(--anim_header), background var(--anim_header);
       height: 100vh; padding: 24px 16px;
     }
     .heroHeader .logoWrap{
       display:flex; flex-direction:column; align-items:center; gap:8px;
-      transform: translateY(0); transition: transform .7s ease, scale .7s ease, opacity .7s ease;
+      transform: translateY(0); transition: transform var(--anim_header), scale var(--anim_header), opacity var(--anim_header);
     }
     .heroHeader img{ display:block; height:auto; }
-    .heroHeader .title{ width:min(70%, 640px); }
-    .heroHeader .subtitle{ width:min(60%, 520px); opacity:.9; }
+    .heroHeader .title{ width:min(var(--titleW_full), 520px); }    /* plus petit qu’avant */
+    .heroHeader .subtitle{ width:min(var(--subtitleW_full), 440px); opacity:.9; }
 
-    /* ÉTAT "réduit" = header sticky */
     .heroHeader.shrink{
       height: var(--headerH);
       padding: 8px 12px;
-      align-items:center; justify-content:center;
       border-bottom-color: var(--line);
       background: rgba(15,15,20,0.92);
     }
-    .heroHeader.shrink .logoWrap{
-      transform: translateY(0);
-    }
-    .heroHeader.shrink .title{ width: 260px; }
-    .heroHeader.shrink .subtitle{ width: 220px; opacity:.85; }
+    .heroHeader.shrink .title{ width: var(--titleW_small); }
+    .heroHeader.shrink .subtitle{ width: var(--subtitleW_small); opacity:.85; }
 
-    /* Contenu page (fade-in) */
-    .page{ opacity:0; transform: translateY(8px); transition: opacity .45s ease .15s, transform .45s ease .15s; }
+    /* PAGE */
+    .page{ opacity:0; transform: translateY(8px); transition: opacity var(--anim_page), transform var(--anim_page); }
     .page.show{ opacity:1; transform: translateY(0); }
-
-    /* Espace en haut pour ne pas passer sous le header sticky */
     main{ padding-top: calc(var(--headerH) + 8px); }
 
     /* Search */
@@ -299,18 +305,21 @@ HTML_APP = """<!DOCTYPE html>
     const API_URL = '/api/recipes/simple';
     let cocktails = []; let filteredCocktails = [];
 
-    // Lance la réduction du hero en header sticky + fade-in du contenu
-    function startTransition(immediate=false){
+    // Synchronisation intro: on attend à la fois les data ET un délai mini
+    let dataReady = false;
+    let minTimeElapsed = false;
+    setTimeout(() => { minTimeElapsed = true; maybeStartTransition(); }, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--intro_min')) || 900);
+
+    function maybeStartTransition(){
+      if(dataReady && minTimeElapsed){
+        startTransition();
+      }
+    }
+
+    function startTransition(){
       const header = document.getElementById('heroHeader');
       const page = document.getElementById('page');
-      if(immediate){
-        header.classList.add('shrink');
-        page.classList.add('show');
-        return;
-      }
-      // Démarre la réduction
       header.classList.add('shrink');
-      // On déclenche l'apparition de la page légèrement après
       setTimeout(()=> page.classList.add('show'), 180);
     }
 
@@ -321,12 +330,13 @@ HTML_APP = """<!DOCTYPE html>
         cocktails = await res.json();
         filteredCocktails = cocktails;
         renderCocktails();
-        // Data prêtes -> transition immédiate
-        startTransition(true);
+        dataReady = true;
+        maybeStartTransition();
       } catch (e) {
         document.getElementById('app').innerHTML = '<div class="center">Erreur de chargement</div>';
-        // Fallback: on déclenche quand même la transition après un court délai
-        setTimeout(()=>startTransition(false), 700);
+        // Même si erreur réseau, on laisse vivre l'intro min, puis on transitionne
+        dataReady = true;
+        maybeStartTransition();
       }
     }
 
@@ -404,14 +414,14 @@ HTML_APP = """<!DOCTYPE html>
       }[m]));
     }
 
-    // Go
+    // go
     loadCocktails();
   </script>
 </body>
 </html>"""
 
 # ----------------------------------------------------------
-# ROUTES (gate appliqué à la page ET à l'API)
+# ROUTES (gate sur page ET API) + logout
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def root(request: Request):
@@ -423,9 +433,19 @@ def root(request: Request):
 def enter(request: Request, code: str = ""):
     if code == ACCESS_CODE:
         resp = RedirectResponse(url="/", status_code=303)
-        resp.set_cookie("cv_access", "1", max_age=60*60*12, path="/")
+        # Cookie de session (no max_age) ou TTL court si ACCESS_TTL défini
+        if ACCESS_TTL:
+            resp.set_cookie("cv_access", "1", max_age=ACCESS_TTL, path="/", samesite="Lax", httponly=True)
+        else:
+            resp.set_cookie("cv_access", "1", path="/", samesite="Lax", httponly=True)
         return resp
     return HTMLResponse(LOGIN_HTML, status_code=401)
+
+@app.get("/logout", include_in_schema=False)
+def logout():
+    resp = RedirectResponse(url="/", status_code=303)
+    resp.delete_cookie("cv_access", path="/")
+    return resp
 
 @app.get("/api", include_in_schema=False)
 def api_root(request: Request):
