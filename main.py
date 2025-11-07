@@ -389,7 +389,7 @@ def app_html() -> str:
       document.getElementById('modalBody').innerHTML =
         (c.ingredients_text
           ? `<div class="section">
-               <div class="label">INGRÉDIENTS</div>
+               <div class="label">INGREDIENTS</div>
                <div class="ingredients">${escapeHtml(c.ingredients_text)}</div>
              </div>` : ''
         ) +
