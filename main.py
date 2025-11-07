@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Response, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -40,7 +40,6 @@ class Recipe(BaseModel):
     notes: Optional[str] = None
     source: Optional[str] = None
     last_update: Optional[str] = None
-    image_url: Optional[str] = None  # <— ajouté
 
 class RecipeSimple(BaseModel):
     id: str
@@ -49,12 +48,11 @@ class RecipeSimple(BaseModel):
     method: str
     ingredients_text: str
     tags: str
-    image_url: Optional[str] = None  # <— ajouté
 
 # ----------------------------------------------------------
 # APP
 # ----------------------------------------------------------
-app = FastAPI(title="Cocktail Recipes API", version="1.6.0")
+app = FastAPI(title="Cocktail Recipes API", version="1.7.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,8 +62,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static files (images UI + drinks)
-# Arborescence attendue : ./static/ui/... et ./static/drinks/...
+# Fichiers statiques pour les visuels UI
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ----------------------------------------------------------
@@ -123,7 +120,7 @@ def google_pubhtml_to_csv(url: str) -> str:
         return url
 
 # ----------------------------------------------------------
-# PAGES (HTML)
+# PAGES (HTML) — DA dark minimal
 # ----------------------------------------------------------
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="fr">
@@ -135,25 +132,33 @@ LOGIN_HTML = """<!DOCTYPE html>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Bayon&family=Big+Shoulders+Text:wght@400;700&family=Raleway:wght@300;400&display=swap" rel="stylesheet">
   <style>
-    :root{ --vert:#1f6047; --sable:#efe9dc; --encre:#222; --ligne:#ddd; }
+    :root{
+      --bg:#0f0f14;      /* fond global (très sombre) */
+      --panel:#17181f;   /* panneaux */
+      --line:#2a2b31;    /* traits */
+      --text:#e5e7eb;    /* texte principal */
+      --muted:#9aa0a6;   /* texte secondaire */
+    }
     *{margin:0;padding:0;box-sizing:border-box}
-    body{ font-family: Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--sable); color: var(--encre);}
-    .wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;}
-    .card{ width:100%; max-width:460px; border:1px solid var(--ligne); border-radius:8px; background:#fff; }
-    .head{ padding:20px; border-bottom:1px solid var(--ligne); }
-    .title{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:22px;}
-    .body{ padding:20px; }
-    label{ display:block; font-size:14px; margin-bottom:6px;}
-    input[type="password"], input[type="text"]{
-      width:100%; border:none; border-bottom:1px solid #222; padding:10px 2px; font-size:16px; outline:none; background:transparent;
+    body{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    .hero{ position:relative; text-align:center; padding:40px 16px; border-bottom:1px solid var(--line); }
+    .hero h3{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:38px; color:var(--text); }
+    .hero img{ width:min(60%,520px); display:block; margin:10px auto 0; }
+    .wrap{ min-height:calc(100vh - 180px); display:flex; align-items:center; justify-content:center; padding:24px; }
+    .card{ width:100%; max-width:460px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
+    .head{ padding:18px; border-bottom:1px solid var(--line); }
+    .title{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:20px; color:var(--text); }
+    .body{ padding:18px; }
+    label{ display:block; font-size:14px; color:var(--muted); margin-bottom:6px; }
+    input[type="password"]{
+      width:100%; border:none; border-bottom:1px solid var(--text);
+      background:transparent; color:var(--text); padding:10px 2px; font-size:16px; outline:none;
     }
-    .row{ margin-top:14px;}
+    .row{ margin-top:14px; }
     button{
-      all:unset; border:1px solid #222; padding:8px 14px; border-radius:4px; cursor:pointer; margin-top:14px;
+      all:unset; border:1px solid var(--text); color:var(--text);
+      padding:8px 14px; border-radius:4px; cursor:pointer;
     }
-    .hero{background:var(--vert); color:var(--sable); text-align:center; padding:24px;}
-    .hero h3{ font-family: Bayon, sans-serif; font-size:40px; letter-spacing:.06em; }
-    .hero img{ width:min(60%, 520px); display:block; margin:8px auto 0; }
   </style>
 </head>
 <body>
@@ -168,9 +173,7 @@ LOGIN_HTML = """<!DOCTYPE html>
       <div class="body">
         <label for="code">Code d’accès</label>
         <input id="code" name="code" type="password" placeholder="••••••••" required />
-        <div class="row">
-          <button type="submit">Valider</button>
-        </div>
+        <div class="row"><button type="submit">Valider</button></div>
       </div>
     </form>
   </div>
@@ -188,11 +191,18 @@ HTML_APP = """<!DOCTYPE html>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Bayon&family=Big+Shoulders+Text:wght@400;700&family=Raleway:wght@300;400&display=swap" rel="stylesheet">
   <style>
-    :root{ --vert:#1f6047; --sable:#efe9dc; --encre:#222; --gris:#b8b2a6; --ligne:#ddd; }
+    :root{
+      --bg:#0f0f14;      /* fond global très sombre */
+      --panel:#17181f;   /* cartes / modales */
+      --line:#2a2b31;    /* traits */
+      --text:#e5e7eb;    /* texte principal */
+      --muted:#9aa0a6;   /* secondaire */
+    }
     *{margin:0;padding:0;box-sizing:border-box}
-    body{ font-family: Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: var(--encre); background: var(--sable); }
-    /* HERO overlay */
-    .hero{ position: fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--vert); color:var(--sable); z-index:999; }
+    body{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+
+    /* HERO (anim d’entrée) */
+    .hero{ position: fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--bg); color:var(--text); z-index:999; }
     .hero.hidden{ display:none; }
     .hero h3{ font-family: Bayon, sans-serif; letter-spacing:.08em; font-size:clamp(42px,10vw,90px); line-height:1; margin-bottom:.2em; opacity:0; transform:translateY(-40px); animation:fadeDown 1.8s ease-out forwards .05s; text-align:center; }
     .hero img{ width:min(60%,520px); display:block; margin:.35rem auto 0; opacity:0; transform:translateY(-20px); }
@@ -203,35 +213,48 @@ HTML_APP = """<!DOCTYPE html>
     @keyframes fadeUp{to{opacity:1; transform:translateY(-10px);}}
     @keyframes fadeUpS{to{opacity:1; transform:translateY(-5px);}}
     @keyframes heroOut{to{opacity:0; visibility:hidden;}}
-    /* header */
-    header{ padding:18px 16px; border-bottom:1px solid var(--ligne); background:transparent; }
+
+    /* Header + search */
+    header{ padding:18px 16px; border-bottom:1px solid var(--line); }
     .brand{ display:flex; align-items:center; justify-content:center; }
     .brand-title{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:clamp(18px,3.5vw,24px); letter-spacing:.04em; }
-    .search{ padding:16px; border-bottom:1px solid var(--ligne);}
-    .search input{ width:100%; font:400 16px/1.3 Raleway, sans-serif; padding:10px 2px; border:none; outline:none; background:transparent; border-bottom:1px solid var(--encre); color:var(--encre);}
-    .grid{ padding:16px; display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:12px;}
-    .card{ background:#fff; border:1px solid var(--ligne); border-radius:6px; cursor:pointer; }
-    .cover{ width:100%; aspect-ratio: 4 / 3; object-fit: cover; display:block; background:#f4f4f4; }
-    .card-head{ padding:12px; border-bottom:1px solid var(--ligne); }
-    .name{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:20px; line-height:1.1; }
+    .search{ padding:16px; border-bottom:1px solid var(--line); }
+    .search input{
+      width:100%; font:400 16px/1.3 Raleway, sans-serif; padding:10px 2px;
+      border:none; outline:none; background:transparent; border-bottom:1px solid var(--text); color:var(--text);
+    }
+    .search input::placeholder{ color:var(--muted); }
+
+    /* Grid (cartes sans images, look plat) */
+    .grid{ padding:16px; display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }
+    .card{ background:var(--panel); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+    .card-head{ padding:12px; border-bottom:1px solid var(--line); }
+    .name{
+      font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:20px; line-height:1.1; color:var(--text);
+    }
     .card-body{ padding:12px; }
-    .meta{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px; font-size:13px; color:#444; }
-    .meta .item{ border-bottom:1px solid #bbb; padding-bottom:1px;}
-    .tags{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; font-size:12px; color:#555; }
-    .tag{ border:1px solid var(--ligne); border-radius:999px; padding:3px 8px; }
-    .center{ text-align:center; padding:48px 16px; color:#666; }
-    .modal{ position: fixed; inset:0; display:none; background: rgba(0,0,0,.06); z-index:998; padding:16px; }
+    .meta{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px; font-size:13px; color:var(--muted); }
+    .meta .item{ border-bottom:1px solid var(--line); padding-bottom:1px; }
+    .tags{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; font-size:12px; color:var(--muted); }
+    .tag{ border:1px solid var(--line); border-radius:999px; padding:3px 8px; }
+
+    .center{ text-align:center; padding:48px 16px; color:var(--muted); }
+
+    /* Modal (sans image) */
+    .modal{ position: fixed; inset:0; display:none; background: rgba(0,0,0,.4); z-index:998; padding:16px; }
     .modal.active{ display:block; }
-    .panel{ background:#fff; border:1px solid var(--ligne); border-radius:8px; max-width:780px; margin:5vh auto; overflow:hidden; }
-    .modal-head{ padding:16px; border-bottom:1px solid var(--ligne); background:#fff; }
-    .modal-title{ font-family:"Big Shoulders Text",sans-serif; font-size:24px; font-weight:700; line-height:1.1; }
-    .modal-meta{ margin-top:6px; font-size:13px; color:#444; display:flex; gap:12px; flex-wrap:wrap; }
-    .modal-body{ padding:16px; }
+    .panel{ background:var(--panel); border:1px solid var(--line); border-radius:8px; max-width:780px; margin:5vh auto; overflow:hidden; }
+    .modal-head{ padding:16px; border-bottom:1px solid var(--line); }
+    .modal-title{ font-family:"Big Shoulders Text",sans-serif; font-size:24px; font-weight:700; line-height:1.1; color:var(--text); }
+    .modal-meta{ margin-top:6px; font-size:13px; color:var(--muted); display:flex; gap:12px; flex-wrap:wrap; }
+    .modal-body{ padding:16px; color:var(--text); }
     .section{ margin-bottom:18px; }
-    .label{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:14px; color:#333; margin-bottom:6px; }
-    .ingredients{ white-space: pre-line; padding:12px; border:1px solid var(--ligne); border-radius:6px; background:#fafafa; font-size:14px; color:#222; }
-    .close{ all:unset; cursor:pointer; float:right; font-size:16px; line-height:1; border-bottom:1px solid #222; padding-bottom:1px; }
-    .modal-cover{ width:100%; aspect-ratio: 16 / 9; object-fit: cover; display:block; background:#f4f4f4; border-bottom:1px solid var(--ligne);}
+    .label{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:14px; color:var(--muted); margin-bottom:6px; }
+    .ingredients{
+      white-space: pre-line; padding:12px; border:1px solid var(--line);
+      border-radius:6px; background:#111218; font-size:14px; color:var(--text);
+    }
+    .close{ all:unset; cursor:pointer; float:right; font-size:16px; line-height:1; border-bottom:1px solid var(--text); padding-bottom:1px; color:var(--text); }
   </style>
 </head>
 <body>
@@ -249,7 +272,6 @@ HTML_APP = """<!DOCTYPE html>
   <!-- Modal -->
   <div id="modal" class="modal" aria-hidden="true">
     <div class="panel" role="dialog" aria-modal="true">
-      <img id="modalImg" class="modal-cover" alt="" />
       <div class="modal-head">
         <button class="close" onclick="closeModal()">fermer</button>
         <div class="modal-title" id="modalTitle"></div>
@@ -261,10 +283,8 @@ HTML_APP = """<!DOCTYPE html>
 
   <script>
     const API_URL = '/api/recipes/simple';
-    let cocktails = [];
-    let filteredCocktails = [];
+    let cocktails = []; let filteredCocktails = [];
 
-    // Masquer hero après anim (ou dès data)
     function hideHero(force=false){
       const h = document.getElementById('hero');
       if(!h) return;
@@ -288,13 +308,9 @@ HTML_APP = """<!DOCTYPE html>
 
     function renderCocktails() {
       const app = document.getElementById('app');
-      if (!filteredCocktails.length) {
-        app.innerHTML = '<div class="center">Aucun cocktail trouvé</div>';
-        return;
-      }
+      if (!filteredCocktails.length) { app.innerHTML = '<div class="center">Aucun cocktail trouvé</div>'; return; }
       app.innerHTML = '<div class="grid">' + filteredCocktails.map(c => `
         <div class="card" onclick="showDetails('${c.id}')">
-          <img class="cover" src="${escapeHtml(c.image_url || '')}" onerror="this.onerror=null;this.src='/static/ui/placeholder.jpg';" alt="" />
           <div class="card-head"><div class="name">${escapeHtml(c.name)}</div></div>
           <div class="card-body">
             <div class="meta">
@@ -325,8 +341,6 @@ HTML_APP = """<!DOCTYPE html>
     function showDetails(id) {
       const c = cocktails.find(x => x.id === id);
       if (!c) return;
-      document.getElementById('modalImg').src = (c.image_url || '/static/ui/placeholder.jpg');
-      document.getElementById('modalImg').onerror = function(){ this.onerror=null; this.src='/static/ui/placeholder.jpg'; };
       document.getElementById('modalTitle').textContent = c.name || '';
       document.getElementById('modalQuickInfo').innerHTML =
         `<div>${escapeHtml(c.glass || '')}</div>` +
@@ -380,20 +394,18 @@ def has_access(request: Request) -> bool:
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def root(request: Request):
-    """Page protégée par code : si pas de cookie, on affiche la page d’accès."""
+    """Si pas de cookie, on affiche la page d’accès (dark)."""
     if not has_access(request):
         return HTMLResponse(LOGIN_HTML)
     return HTML_APP
 
 @app.get("/enter", include_in_schema=False)
 def enter(request: Request, code: str = ""):
-    """Validation du code et pose d’un cookie simple (non HttpOnly)."""
+    """Validation du code et cookie (12 h)."""
     if code == ACCESS_CODE:
         resp = RedirectResponse(url="/", status_code=303)
-        # Cookie simple (durée 12h). Pour plus de sécurité, ajoute SameSite/HttpOnly si besoin.
         resp.set_cookie("cv_access", "1", max_age=60*60*12, path="/")
         return resp
-    # code invalide -> retour à la page d’accès
     return HTMLResponse(LOGIN_HTML, status_code=401)
 
 @app.get("/api", include_in_schema=False)
@@ -431,45 +443,31 @@ async def debug_test_csv():
 @app.get("/api/recipes", response_model=List[Recipe])
 async def list_recipes():
     rows = await load_rows()
-    out = []
-    for r in rows:
-        n = normalize_row(r)
-        # Image : si CSV possède une colonne "image" (URL), on la garde.
-        # Sinon, fallback sur /static/drinks/<slug>.jpg
-        n.image_url = n.image_url or f"/static/drinks/{n.slug}.jpg"
-        out.append(n)
-    return out
+    return [normalize_row(r) for r in rows]
 
 @app.get("/api/recipes/simple", response_model=List[RecipeSimple])
 async def list_recipes_simple():
     rows = await load_rows()
     result = []
     for r in rows:
-        ingredients_text = ""
+        ings_text = ""
         ings_val = (r.get("ingredients") or "").strip()
         if ings_val.startswith("["):
             try:
                 data = json.loads(ings_val)
-                ingredients_text = "\n".join([
-                    f"{ing.get('item', '')} - {ing.get('ml', '')}ml"
-                    for ing in data if ing.get('item')
-                ])
+                ings_text = "\n".join([f"{ing.get('item','')} - {ing.get('ml','')}ml"
+                                       for ing in data if ing.get('item')])
             except:
-                ingredients_text = r.get("spec_ml") or r.get("spec_oz") or ""
+                ings_text = r.get("spec_ml") or r.get("spec_oz") or ""
         else:
-            ingredients_text = r.get("spec_ml") or r.get("spec_oz") or ""
-
-        rid = slugify(r.get("slug") or r.get("name", ""))
-        image_url = (r.get("image") or "").strip() or f"/static/drinks/{rid}.jpg"
-
+            ings_text = r.get("spec_ml") or r.get("spec_oz") or ""
         result.append(RecipeSimple(
-            id=rid,
+            id=slugify(r.get("slug") or r.get("name","")),
             name=(r.get("name") or "").strip(),
             glass=(r.get("glass") or "Non spécifié").strip(),
             method=(r.get("method") or "Non spécifié").strip(),
-            ingredients_text=ingredients_text,
-            tags=(r.get("tags") or "").strip(),
-            image_url=image_url
+            ingredients_text=ings_text,
+            tags=(r.get("tags") or "").strip()
         ))
     return result
 
@@ -478,11 +476,9 @@ async def get_recipe(slug: str):
     rows = await load_rows()
     wanted = slugify(slug.strip())
     for r in rows:
-        current = slugify(r.get("slug") or r.get("name", ""))
+        current = slugify(r.get("slug") or r.get("name",""))
         if current == wanted:
-            n = normalize_row(r)
-            n.image_url = n.image_url or f"/static/drinks/{n.slug}.jpg"
-            return n
+            return normalize_row(r)
     raise HTTPException(404, detail="Not found")
 
 # ----------------------------------------------------------
@@ -525,7 +521,7 @@ async def load_rows(force: bool = False):
 # NORMALISATION
 # ----------------------------------------------------------
 def normalize_row(raw: dict) -> Recipe:
-    slug = slugify(raw.get("slug") or raw.get("name", ""))
+    slug = slugify(raw.get("slug") or raw.get("name",""))
     tags = [t.strip() for t in (raw.get("tags") or "").split(",") if t.strip()]
     ingredients = None
     ings_val = (raw.get("ingredients") or "").strip()
@@ -535,8 +531,6 @@ def normalize_row(raw: dict) -> Recipe:
             ingredients = [Ingredient(**x) for x in data]
         except Exception:
             pass
-
-    image_url = (raw.get("image") or "").strip() or None
 
     return Recipe(
         name=(raw.get("name") or "").strip(),
@@ -554,7 +548,6 @@ def normalize_row(raw: dict) -> Recipe:
         notes=raw.get("notes"),
         source=raw.get("source"),
         last_update=raw.get("last_update"),
-        image_url=image_url
     )
 
 @app.exception_handler(404)
