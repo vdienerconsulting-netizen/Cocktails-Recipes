@@ -17,7 +17,7 @@ ACCESS_TTL = os.environ.get("ACCESS_TTL")
 ACCESS_TTL = int(ACCESS_TTL) if (ACCESS_TTL and ACCESS_TTL.isdigit()) else None
 
 CACHE_TTL = 60  # secondes
-STATIC_BUST = "20251107"  # cache-busting assets
+STATIC_BUST = "20251107"
 _cache = {"at": 0.0, "rows": [], "meta": {}}
 
 # ----------------------------------------------------------
@@ -56,7 +56,7 @@ class RecipeSimple(BaseModel):
 # ----------------------------------------------------------
 # APP
 # ----------------------------------------------------------
-app = FastAPI(title="Cocktail Recipes API", version="2.0.1")
+app = FastAPI(title="Cocktail Recipes API", version="2.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -130,7 +130,7 @@ def require_access(request: Request):
         raise HTTPException(401, detail="Unauthorized")
 
 # ----------------------------------------------------------
-# HTML — Dark + hero centré → réduit en header + titres plus petits
+# HTML — Dark + intro hero -> header; tags masqués; sections history/notes; ingrédients en tableau
 # ----------------------------------------------------------
 def login_html() -> str:
     bust = STATIC_BUST
@@ -149,7 +149,7 @@ def login_html() -> str:
     body{{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }}
     .wrap{{ min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; padding:24px; }}
     .logos img{{ display:block; height:auto; margin:0 auto 8px; }}
-    .logos .title{{ width:min(48%, 460px); }}      /* plus petit */
+    .logos .title{{ width:min(48%, 460px); }}
     .logos .subtitle{{ width:min(42%, 400px); opacity:.9; }}
 
     .card{{ width:100%; max-width:440px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }}
@@ -178,7 +178,7 @@ def login_html() -> str:
         <label for="code">Code d’accès</label>
         <input id="code" name="code" type="password" placeholder="••••••••" required />
         <div class="row"><button type="submit">Valider</button></div>
-        <div class="hint">Besoin de sortir ? Visite <code>/logout</code>.</div>
+        <div class="hint">Besoin de sortir ? Va sur <code>/logout</code>.</div>
       </div>
     </form>
   </div>
@@ -200,32 +200,28 @@ def app_html() -> str:
   <style>
     :root{{
       --bg:#0f0f14; --panel:#17181f; --line:#2a2b31; --text:#e5e7eb; --muted:#9aa0a6;
-      --headerH:80px;                 /* header réduit un peu plus petit */
-      --titleW_full:44vw;             /* largeur titres en plein écran (plus petit) */
-      --subtitleW_full:38vw;
-      --titleW_small:210px;           /* largeur titres réduits */
-      --subtitleW_small:180px;
-      --anim_header:.7s ease;
-      --anim_page:.45s ease .15s;
-      --intro_min:900;                /* ms */
+      --headerH:80px;
+      --titleW_full:44vw; --subtitleW_full:38vw;
+      --titleW_small:210px; --subtitleW_small:180px;
+      --anim_header:.7s ease; --anim_page:.45s ease .15s; --intro_min:900;
     }}
     *{{margin:0;padding:0;box-sizing:border-box}}
     body{{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }}
 
-    /* ÉCRAN INTRO: fond noir + hero centré seul */
+    /* INTRO: hero centré seul */
     .intro{{ position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; background:var(--bg); }}
     .intro .logoWrap{{ display:flex; flex-direction:column; align-items:center; gap:8px; }}
     .intro img{{ display:block; height:auto; }}
     .intro .title{{ width:min(var(--titleW_full), 480px); }}
     .intro .subtitle{{ width:min(var(--subtitleW_full), 420px); opacity:.95; }}
 
-    /* HEADER collant (le hero réduit vient s’y “placer”) */
+    /* HEADER sticky (hero réduit) */
     header.heroHeader{{
       position: fixed; top:0; left:0; right:0; z-index:999;
       display:flex; flex-direction:column; align-items:center; justify-content:center;
       background: rgba(15,15,20,0.92); border-bottom:1px solid var(--line);
       height: var(--headerH); padding: 8px 12px;
-      transform: translateY(-110%);            /* caché au départ */
+      transform: translateY(-110%);
       transition: transform var(--anim_header);
     }}
     header.heroHeader.show{{ transform: translateY(0); }}
@@ -252,28 +248,34 @@ def app_html() -> str:
     .card-head{{ padding:12px; border-bottom:1px solid var(--line); }}
     .name{{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:20px; line-height:1.1; color:var(--text); text-transform: uppercase; }}
     .card-body{{ padding:12px; }}
-    .meta{{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px; font-size:13px; color:var(--muted); }}
-    .meta .item{{ border-bottom:1px solid var(--line); padding-bottom:1px; }}
-    .tags{{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; font-size:12px; color:var(--muted); }}
-    .tag{{ border:1px solid var(--line); border-radius:999px; padding:3px 8px; }}
+    .meta{{ display:flex; flex-wrap:wrap; gap:8px; font-size:13px; color:var(--muted); }}
+
     .center{{ text-align:center; padding:48px 16px; color:var(--muted); }}
 
     /* Modal */
     .modal{{ position: fixed; inset:0; display:none; background: rgba(0,0,0,.4); z-index:998; padding:16px; }}
     .modal.active{{ display:block; }}
-    .panel{{ background:var(--panel); border:1px solid var(--line); border-radius:8px; max-width:780px; margin:5vh auto; overflow:hidden; }}
+    .panel{{ background:var(--panel); border:1px solid var(--line); border-radius:8px; max-width:900px; margin:5vh auto; overflow:hidden; }}
     .modal-head{{ padding:16px; border-bottom:1px solid var(--line); }}
-    .modal-title{{ font-family:"Big Shoulders Text",sans-serif; font-size:24px; font-weight:700; line-height:1.1; color:var(--text); }}
+    .modal-title{{ font-family:"Big Shoulders Text",sans-serif; font-size:24px; font-weight:700; line-height:1.1; color:var(--text); text-transform: uppercase; }}
     .modal-meta{{ margin-top:6px; font-size:13px; color:var(--muted); display:flex; gap:12px; flex-wrap:wrap; }}
     .modal-body{{ padding:16px; color:var(--text); }}
     .section{{ margin-bottom:18px; }}
     .label{{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:14px; color:var(--muted); margin-bottom:6px; }}
-    .ingredients{{ white-space: pre-line; padding:12px; border:1px solid var(--line); border-radius:6px; background:#111218; font-size:14px; color:var(--text); }}
+
+    /* Tableau ingrédients */
+    .ing-table{{ width:100%; border-collapse:collapse; font-size:14px; }}
+    .ing-table th, .ing-table td{{ border:1px solid var(--line); padding:8px; text-align:left; }}
+    .ing-table th{{ background:#111218; color:var(--text); font-weight:600; }}
+
+    /* Bloc texte fallback */
+    .ingredients-block{{ white-space: pre-line; padding:12px; border:1px solid var(--line); border-radius:6px; background:#111218; font-size:14px; color:var(--text); }}
+
     .close{{ all:unset; cursor:pointer; float:right; font-size:16px; line-height:1; border-bottom:1px solid var(--text); padding-bottom:1px; color:var(--text); }}
   </style>
 </head>
 <body>
-  <!-- 1) INTRO: fond noir + hero centré -->
+  <!-- INTRO -->
   <div id="intro" class="intro" aria-hidden="false">
     <div class="logoWrap">
       <img class="title" src="/static/ui/chez-vincent-titre.png?v={bust}" alt="Chez Vincent"/>
@@ -281,7 +283,7 @@ def app_html() -> str:
     </div>
   </div>
 
-  <!-- 2) HEADER: le hero réduit vient s'y placer -->
+  <!-- HEADER (hero réduit) -->
   <header id="heroHeader" class="heroHeader" role="banner" aria-hidden="true">
     <div class="logoWrap">
       <img class="title" src="/static/ui/chez-vincent-titre.png?v={bust}" alt="Chez Vincent"/>
@@ -289,7 +291,7 @@ def app_html() -> str:
     </div>
   </header>
 
-  <!-- 3) PAGE -->
+  <!-- PAGE -->
   <div id="page" class="page" aria-hidden="true">
     <main>
       <div class="search"><input id="search" type="text" placeholder="Rechercher un cocktail…"></div>
@@ -323,13 +325,11 @@ def app_html() -> str:
     }
 
     function startTransition(){
-      // cache l'intro, fait apparaître le header (hero réduit) puis la page
       const intro = document.getElementById('intro');
       const header = document.getElementById('heroHeader');
       const page = document.getElementById('page');
-
       if(intro){ intro.style.display = 'none'; }
-      if(header){ header.classList.add('show'); header.setAttribute('aria-hidden','false'); }
+      header.classList.add('show'); header.setAttribute('aria-hidden','false');
       setTimeout(()=>{ page.classList.add('show'); page.setAttribute('aria-hidden','false'); }, 180);
     }
 
@@ -360,11 +360,7 @@ def app_html() -> str:
               <div class="item">${escapeHtml(c.glass || '')}</div>
               <div class="item">${escapeHtml(c.method || '')}</div>
             </div>
-            ${ c.tags
-                ? '<div class="tags">' + c.tags.split(',').map(t => (
-                    '<span class="tag">' + escapeHtml(t.trim()) + '</span>'
-                  )).join('') + '</div>'
-                : '' }
+            <!-- Tags masqués visuellement -->
           </div>
         </div>`;
       }).join('') + '</div>';
@@ -374,33 +370,64 @@ def app_html() -> str:
       const q = e.target.value.toLowerCase();
       filteredCocktails = cocktails.filter(c =>
         (c.name || '').toLowerCase().includes(q) ||
-        (c.tags || '').toLowerCase().includes(q)
+        (c.tags || '').toLowerCase().includes(q) // tags gardés pour la recherche
       );
       renderCocktails();
     });
 
-    function showDetails(id) {
-      const c = cocktails.find(x => x.id === id);
-      if (!c) return;
-      document.getElementById('modalTitle').textContent = (c.name || '').toUpperCase();
+    async function showDetails(id) {
+      // On récupère la recette détaillée pour avoir le tableau d'ingrédients structuré
+      const res = await fetch('/api/recipes/' + encodeURIComponent(id), { credentials: 'same-origin' });
+      if(!res.ok){ return; }
+      const r = await res.json();
+
+      document.getElementById('modalTitle').textContent = (r.name || '').toUpperCase();
       document.getElementById('modalQuickInfo').innerHTML =
-        `<div>${escapeHtml(c.glass || '')}</div>` +
-        `<div>${escapeHtml(c.method || '')}</div>`;
-      document.getElementById('modalBody').innerHTML =
-        (c.ingredients_text
-          ? `<div class="section">
-               <div class="label">INGREDIENTS</div>
-               <div class="ingredients">${escapeHtml(c.ingredients_text)}</div>
-             </div>` : ''
-        ) +
-        (c.tags
-          ? `<div class="section">
-               <div class="label">TAGS</div>
-               <div class="tags">${
-                 c.tags.split(',').map(t => `<span class="tag">${escapeHtml(t.trim())}</span>`).join('')
-               }</div>
-             </div>` : ''
-        );
+        `<div>${escapeHtml(r.glass || '')}</div>` +
+        `<div>${escapeHtml(r.method || '')}</div>`;
+
+      // Ingrédients
+      let ingHtml = '';
+      if (Array.isArray(r.ingredients) && r.ingredients.length) {
+        ingHtml = `
+          <div class="section">
+            <div class="label">INGREDIENTS</div>
+            <table class="ing-table">
+              <thead><tr><th>Ingrédient</th><th>ml</th><th>oz</th></tr></thead>
+              <tbody>
+                ${r.ingredients.map(ing => `
+                  <tr>
+                    <td>${escapeHtml(ing.item || '')}</td>
+                    <td>${ing.ml != null ? escapeHtml(String(ing.ml)) : ''}</td>
+                    <td>${ing.oz != null ? escapeHtml(String(ing.oz)) : ''}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`;
+      } else {
+        // Fallback texte (spec_ml/spec_oz ou ingredients_text)
+        const spec = (r.spec_ml || r.spec_oz || '').trim();
+        if (spec) {
+          ingHtml = `
+            <div class="section">
+              <div class="label">INGRÉDIENTS</div>
+              <div class="ingredients-block">${escapeHtml(spec)}</div>
+            </div>`;
+        }
+      }
+
+      // Histoire
+      const histHtml = r.history && r.history.trim()
+        ? `<div class="section"><div class="label">HISTOIRE</div><div class="ingredients-block">${escapeHtml(r.history)}</div></div>`
+        : '';
+
+      // Notes
+      const notesHtml = r.notes && r.notes.trim()
+        ? `<div class="section"><div class="label">NOTES</div><div class="ingredients-block">${escapeHtml(r.notes)}</div></div>`
+        : '';
+
+      document.getElementById('modalBody').innerHTML = ingHtml + histHtml + notesHtml;
+
       const m = document.getElementById('modal');
       m.classList.add('active');
       m.setAttribute('aria-hidden','false');
@@ -516,7 +543,7 @@ async def list_recipes_simple(request: Request):
             glass=(r.get("glass") or "Non spécifié").strip(),
             method=(r.get("method") or "Non spécifié").strip(),
             ingredients_text=ings_text,
-            tags=(r.get("tags") or "").strip()
+            tags=(r.get("tags") or "").strip()  # conservé pour la recherche uniquement
         ))
     return result
 
