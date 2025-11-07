@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="description" content="Guide de recettes de cocktails pour le bar">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <title>Cocktails Bar</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #e94560;
+            --bg-dark: #0f0f23;
+            --bg-card: #1a1a2e;
+            --text: #eaeaea;
+            --text-dim: #a8a8b3;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            padding-bottom: 20px;
+        }
+
+        header {
+            background: linear-gradient(135deg, var(--primary) 0%, #c72a4d 100%);
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(233, 69, 96, 0.3);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .search-bar {
+            padding: 15px 20px;
+            background: var(--bg-card);
+        }
+
+        #search {
+            width: 100%;
+            padding: 12px 20px;
+            border: 2px solid #2d2d44;
+            border-radius: 25px;
+            background: var(--bg-dark);
+            color: var(--text);
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        #search:focus {
+            border-color: var(--primary);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-dim);
+        }
+
+        .spinner {
+            border: 3px solid #2d2d44;
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #ff4444;
+            color: white;
+            padding: 15px 20px;
+            margin: 15px 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .cocktails-grid {
+            padding: 15px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+        }
+
+        .cocktail-card {
+            background: var(--bg-card);
+            border-radius: 15px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid #2d2d44;
+        }
+
+        .cocktail-card:active {
+            transform: scale(0.98);
+        }
+
+        .cocktail-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 25px rgba(233, 69, 96, 0.2);
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, #2d2d44 0%, #3a3a52 100%);
+            padding: 15px;
+            border-bottom: 2px solid var(--primary);
+        }
+
+        .card-name {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--text);
+            text-transform: capitalize;
+        }
+
+        .card-body {
+            padding: 15px;
+        }
+
+        .card-info {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            background: #2d2d44;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        .badge.glass {
+            background: rgba(233, 69, 96, 0.2);
+            color: var(--primary);
+        }
+
+        .tags {
+            margin-top: 10px;
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .tag {
+            background: #0f0f23;
+            color: var(--text-dim);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            overflow-y: auto;
+            animation: fadeIn 0.2s;
+        }
+
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-content {
+            background: var(--bg-card);
+            border-radius: 20px;
+            max-width: 600px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, var(--primary) 0%, #c72a4d 100%);
+            padding: 25px;
+            position: relative;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            font-size: 1.5rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .modal-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            text-transform: capitalize;
+            margin-bottom: 10px;
+        }
+
+        .modal-body {
+            padding: 25px;
+        }
+
+        .detail-section {
+            margin-bottom: 25px;
+        }
+
+        .detail-label {
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .detail-value {
+            color: var(--text);
+            line-height: 1.6;
+            white-space: pre-line;
+        }
+
+        .ingredients-list {
+            background: var(--bg-dark);
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 3px solid var(--primary);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-dim);
+        }
+
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🍸 Cocktails Bar</h1>
+    </header>
+
+    <div class="search-bar">
+        <input type="text" id="search" placeholder="Rechercher un cocktail...">
+    </div>
+
+    <div id="app">
+        <div class="loading">
+            <div class="spinner"></div>
+            <p>Chargement des recettes...</p>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button class="close-btn" onclick="closeModal()">×</button>
+                <h2 class="modal-title" id="modalTitle"></h2>
+                <div class="card-info" id="modalQuickInfo"></div>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'https://cocktails-recipes.onrender.com/recipes/simple';
+        let cocktails = [];
+        let filteredCocktails = [];
+
+        // Charger les cocktails
+        async function loadCocktails() {
+            try {
+                const response = await fetch(API_URL);
+                if (!response.ok) throw new Error('Erreur de chargement');
+                
+                cocktails = await response.json();
+                filteredCocktails = cocktails;
+                renderCocktails();
+            } catch (error) {
+                document.getElementById('app').innerHTML = `
+                    <div class="error">
+                        ⚠️ Impossible de charger les recettes.<br>
+                        Vérifiez votre connexion internet.
+                    </div>
+                `;
+            }
+        }
+
+        // Afficher les cocktails
+        function renderCocktails() {
+            const app = document.getElementById('app');
+            
+            if (filteredCocktails.length === 0) {
+                app.innerHTML = `
+                    <div class="empty-state">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                        <p>Aucun cocktail trouvé</p>
+                    </div>
+                `;
+                return;
+            }
+
+            app.innerHTML = `
+                <div class="cocktails-grid">
+                    ${filteredCocktails.map(cocktail => `
+                        <div class="cocktail-card" onclick="showDetails('${cocktail.id}')">
+                            <div class="card-header">
+                                <div class="card-name">${cocktail.name}</div>
+                            </div>
+                            <div class="card-body">
+                                <div class="card-info">
+                                    <span class="badge glass">🥃 ${cocktail.glass}</span>
+                                    <span class="badge">⚡ ${cocktail.method}</span>
+                                </div>
+                                ${cocktail.tags ? `
+                                    <div class="tags">
+                                        ${cocktail.tags.split(',').map(tag => 
+                                            `<span class="tag">#${tag.trim()}</span>`
+                                        ).join('')}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        // Recherche
+        document.getElementById('search').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            filteredCocktails = cocktails.filter(c => 
+                c.name.toLowerCase().includes(query) ||
+                (c.tags && c.tags.toLowerCase().includes(query))
+            );
+            renderCocktails();
+        });
+
+        // Afficher les détails
+        function showDetails(id) {
+            const cocktail = cocktails.find(c => c.id === id);
+            if (!cocktail) return;
+
+            document.getElementById('modalTitle').textContent = cocktail.name;
+            document.getElementById('modalQuickInfo').innerHTML = `
+                <span class="badge glass">🥃 ${cocktail.glass}</span>
+                <span class="badge">⚡ ${cocktail.method}</span>
+            `;
+
+            document.getElementById('modalBody').innerHTML = `
+                ${cocktail.ingredients_text ? `
+                    <div class="detail-section">
+                        <div class="detail-label">🍹 Ingrédients</div>
+                        <div class="ingredients-list">
+                            <div class="detail-value">${cocktail.ingredients_text}</div>
+                        </div>
+                    </div>
+                ` : ''}
+                
+                ${cocktail.tags ? `
+                    <div class="detail-section">
+                        <div class="detail-label">🏷️ Tags</div>
+                        <div class="tags">
+                            ${cocktail.tags.split(',').map(tag => 
+                                `<span class="tag">#${tag.trim()}</span>`
+                            ).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+            `;
+
+            document.getElementById('modal').classList.add('active');
+        }
+
+        // Fermer le modal
+        function closeModal() {
+            document.getElementById('modal').classList.remove('active');
+        }
+
+        // Fermer avec Escape ou clic extérieur
+        document.getElementById('modal').addEventListener('click', (e) => {
+            if (e.target.id === 'modal') closeModal();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        // PWA - Service Worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(() => {});
+        }
+
+        // Charger au démarrage
+        loadCocktails();
+    </script>
+</body>
+</html>
