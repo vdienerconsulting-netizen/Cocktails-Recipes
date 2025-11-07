@@ -1,17 +1,18 @@
 from fastapi import FastAPI, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 import csv, io, time, os, json, unicodedata, re
 import httpx
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import urlparse, parse_qs
 
 # ----------------------------------------------------------
 # CONFIG
 # ----------------------------------------------------------
 CSV_URL = os.environ.get("CSV_URL", "").strip()
+ACCESS_CODE = os.environ.get("ACCESS_CODE", "orgeatsalécestmeilleur")
 CACHE_TTL = 60  # secondes
 _cache = {"at": 0.0, "rows": [], "meta": {}}
 
@@ -39,6 +40,7 @@ class Recipe(BaseModel):
     notes: Optional[str] = None
     source: Optional[str] = None
     last_update: Optional[str] = None
+    image_url: Optional[str] = None  # <— ajouté
 
 class RecipeSimple(BaseModel):
     id: str
@@ -47,11 +49,12 @@ class RecipeSimple(BaseModel):
     method: str
     ingredients_text: str
     tags: str
+    image_url: Optional[str] = None  # <— ajouté
 
 # ----------------------------------------------------------
 # APP
 # ----------------------------------------------------------
-app = FastAPI(title="Cocktail Recipes API", version="1.5.0")
+app = FastAPI(title="Cocktail Recipes API", version="1.6.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -60,6 +63,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Static files (images UI + drinks)
+# Arborescence attendue : ./static/ui/... et ./static/drinks/...
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ----------------------------------------------------------
 # UTILS
@@ -116,225 +123,133 @@ def google_pubhtml_to_csv(url: str) -> str:
         return url
 
 # ----------------------------------------------------------
-# HTML FRONTEND
+# PAGES (HTML)
 # ----------------------------------------------------------
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Accès — Chez Vincent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Bayon&family=Big+Shoulders+Text:wght@400;700&family=Raleway:wght@300;400&display=swap" rel="stylesheet">
+  <style>
+    :root{ --vert:#1f6047; --sable:#efe9dc; --encre:#222; --ligne:#ddd; }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{ font-family: Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--sable); color: var(--encre);}
+    .wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;}
+    .card{ width:100%; max-width:460px; border:1px solid var(--ligne); border-radius:8px; background:#fff; }
+    .head{ padding:20px; border-bottom:1px solid var(--ligne); }
+    .title{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:22px;}
+    .body{ padding:20px; }
+    label{ display:block; font-size:14px; margin-bottom:6px;}
+    input[type="password"], input[type="text"]{
+      width:100%; border:none; border-bottom:1px solid #222; padding:10px 2px; font-size:16px; outline:none; background:transparent;
+    }
+    .row{ margin-top:14px;}
+    button{
+      all:unset; border:1px solid #222; padding:8px 14px; border-radius:4px; cursor:pointer; margin-top:14px;
+    }
+    .hero{background:var(--vert); color:var(--sable); text-align:center; padding:24px;}
+    .hero h3{ font-family: Bayon, sans-serif; font-size:40px; letter-spacing:.06em; }
+    .hero img{ width:min(60%, 520px); display:block; margin:8px auto 0; }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h3>BIENVENUE</h3>
+    <img src="/static/ui/chez-vincent-titre.png" alt="Chez Vincent - Buvette Cocktail"/>
+    <img src="/static/ui/chez-vincent-soustitre.png" alt="Sous-titre"/>
+  </div>
+  <div class="wrap">
+    <form class="card" method="GET" action="/enter">
+      <div class="head"><div class="title">Entrer sur l’app</div></div>
+      <div class="body">
+        <label for="code">Code d’accès</label>
+        <input id="code" name="code" type="password" placeholder="••••••••" required />
+        <div class="row">
+          <button type="submit">Valider</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</body>
+</html>"""
+
 HTML_APP = """<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Chez Vincent — Cocktails</title>
+  <title>Chez Vincent's Recipes</title>
   <meta name="description" content="Buvette cocktail — liste des recettes" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Bayon&family=Big+Shoulders+Text:wght@400;700&family=Raleway:wght@300;400&display=swap" rel="stylesheet">
-
   <style>
-    /* ---------- Design System ---------- */
-    :root{
-      --vert:#1f6047;      /* fond hero / accents */
-      --sable:#efe9dc;     /* texte clair sur vert + fonds */
-      --encre:#222;        /* texte principal sur fond clair */
-      --gris:#b8b2a6;      /* texte secondaire */
-      --ligne:#ddd;        /* séparateurs plats */
-    }
+    :root{ --vert:#1f6047; --sable:#efe9dc; --encre:#222; --gris:#b8b2a6; --ligne:#ddd; }
     *{margin:0;padding:0;box-sizing:border-box}
-    body{
-      font-family: Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      color: var(--encre);
-      background: var(--sable);
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-    }
-
-    /* ---------- Hero (entrée animée) ---------- */
-    .hero{
-      position: fixed; inset:0;
-      display:flex; flex-direction:column; align-items:center; justify-content:center;
-      background: var(--vert);
-      color: var(--sable);
-      z-index: 999;
-      overflow:hidden;
-    }
-    .hero.hidden{ display:none; } /* masqué après anim */
-    .hero h3{
-      font-family: Bayon, sans-serif;
-      letter-spacing: .08em;
-      font-size: clamp(42px, 10vw, 90px);
-      line-height: 1;
-      margin-bottom: .2em;
-      opacity:0; transform: translateY(-40px);
-      animation: fadeDown 1.8s ease-out forwards .05s;
-      text-align:center;
-    }
-    .hero img{
-      width:min(60%, 520px);
-      display:block;
-      margin:.35rem auto 0 auto;
-      opacity:0; transform: translateY(-20px);
-    }
-    .hero img.title{ animation: fadeUp 1.8s ease-out forwards .8s; }
-    .hero img.sub  { animation: fadeUpS 1.8s ease-out forwards 1.55s; }
-
-    /* fade out de tout l’écran hero pour dévoiler l’app */
-    .hero.fadeout{
-      animation: heroOut .6s ease-in forwards 2.4s;
-    }
-
-    @keyframes fadeDown{
-      to{opacity:1; transform: translateY(0);}
-    }
-    @keyframes fadeUp{
-      to{opacity:1; transform: translateY(-10px);}
-    }
-    @keyframes fadeUpS{
-      to{opacity:1; transform: translateY(-5px);}
-    }
-    @keyframes heroOut{
-      to{opacity:0; visibility:hidden;}
-    }
-
-    /* ---------- En-tête minimal ---------- */
-    header{
-      padding: 18px 16px;
-      border-bottom: 1px solid var(--ligne);
-      background: transparent;
-    }
-    .brand{
-      display:flex; align-items:center; justify-content:center;
-      gap: 10px;
-      text-align:center;
-    }
-    .brand-title{
-      font-family: "Big Shoulders Text", sans-serif;
-      font-weight:700;
-      font-size: clamp(18px, 3.5vw, 24px);
-      letter-spacing:.04em;
-    }
-
-    /* ---------- Barre de recherche ---------- */
-    .search{
-      padding: 16px;
-      border-bottom: 1px solid var(--ligne);
-      background: transparent;
-    }
-    .search input{
-      width:100%;
-      font: 400 16px/1.3 Raleway, sans-serif;
-      padding: 10px 2px;
-      border: none;
-      outline: none;
-      background: transparent;
-      border-bottom: 1px solid var(--encre);
-      color: var(--encre);
-    }
-    .search input::placeholder{ color:#666; }
-
-    /* ---------- Grille cartes ---------- */
-    .grid{
-      padding: 16px;
-      display:grid;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-      gap: 12px;
-    }
-    .card{
-      background: #fff;
-      border: 1px solid var(--ligne);
-      border-radius: 6px;
-      cursor: pointer;
-    }
-    .card-head{
-      padding: 12px;
-      border-bottom: 1px solid var(--ligne);
-    }
-    .name{
-      font-family: "Big Shoulders Text", sans-serif;
-      font-weight:700;
-      font-size: 20px;
-      line-height:1.1;
-      text-transform: none;
-    }
-    .card-body{ padding: 12px; }
-    .meta{
-      display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px;
-      font-size: 13px; color:#444;
-    }
-    .meta .item{ border-bottom:1px solid #bbb; padding-bottom:1px; }
-
-    .tags{
-      display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;
-      font-size: 12px; color:#555;
-    }
-    .tag{ border:1px solid var(--ligne); border-radius: 999px; padding:3px 8px; }
-
-    /* ---------- État chargement / vide ---------- */
-    .center{ text-align:center; padding: 48px 16px; color:#666; }
-
-    /* ---------- Modal minimal ---------- */
-    .modal{
-      position: fixed; inset:0; display:none;
-      background: rgba(0,0,0,.06); /* voile très léger */
-      z-index: 998;
-      padding: 16px;
-    }
+    body{ font-family: Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: var(--encre); background: var(--sable); }
+    /* HERO overlay */
+    .hero{ position: fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--vert); color:var(--sable); z-index:999; }
+    .hero.hidden{ display:none; }
+    .hero h3{ font-family: Bayon, sans-serif; letter-spacing:.08em; font-size:clamp(42px,10vw,90px); line-height:1; margin-bottom:.2em; opacity:0; transform:translateY(-40px); animation:fadeDown 1.8s ease-out forwards .05s; text-align:center; }
+    .hero img{ width:min(60%,520px); display:block; margin:.35rem auto 0; opacity:0; transform:translateY(-20px); }
+    .hero img.title{ animation:fadeUp 1.8s ease-out forwards .8s;}
+    .hero img.sub{   animation:fadeUpS 1.8s ease-out forwards 1.55s;}
+    .hero.fadeout{ animation:heroOut .6s ease-in forwards 2.4s;}
+    @keyframes fadeDown{to{opacity:1; transform:translateY(0);}}
+    @keyframes fadeUp{to{opacity:1; transform:translateY(-10px);}}
+    @keyframes fadeUpS{to{opacity:1; transform:translateY(-5px);}}
+    @keyframes heroOut{to{opacity:0; visibility:hidden;}}
+    /* header */
+    header{ padding:18px 16px; border-bottom:1px solid var(--ligne); background:transparent; }
+    .brand{ display:flex; align-items:center; justify-content:center; }
+    .brand-title{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:clamp(18px,3.5vw,24px); letter-spacing:.04em; }
+    .search{ padding:16px; border-bottom:1px solid var(--ligne);}
+    .search input{ width:100%; font:400 16px/1.3 Raleway, sans-serif; padding:10px 2px; border:none; outline:none; background:transparent; border-bottom:1px solid var(--encre); color:var(--encre);}
+    .grid{ padding:16px; display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:12px;}
+    .card{ background:#fff; border:1px solid var(--ligne); border-radius:6px; cursor:pointer; }
+    .cover{ width:100%; aspect-ratio: 4 / 3; object-fit: cover; display:block; background:#f4f4f4; }
+    .card-head{ padding:12px; border-bottom:1px solid var(--ligne); }
+    .name{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:20px; line-height:1.1; }
+    .card-body{ padding:12px; }
+    .meta{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px; font-size:13px; color:#444; }
+    .meta .item{ border-bottom:1px solid #bbb; padding-bottom:1px;}
+    .tags{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; font-size:12px; color:#555; }
+    .tag{ border:1px solid var(--ligne); border-radius:999px; padding:3px 8px; }
+    .center{ text-align:center; padding:48px 16px; color:#666; }
+    .modal{ position: fixed; inset:0; display:none; background: rgba(0,0,0,.06); z-index:998; padding:16px; }
     .modal.active{ display:block; }
-    .modal-panel{
-      background:#fff; border:1px solid var(--ligne);
-      border-radius:8px; max-width:680px; margin: 5vh auto;
-      overflow:hidden;
-    }
-    .modal-head{
-      padding:16px; border-bottom:1px solid var(--ligne);
-      background:#fff;
-    }
-    .modal-title{
-      font-family:"Big Shoulders Text", sans-serif;
-      font-size: 24px; font-weight:700; line-height:1.1;
-    }
+    .panel{ background:#fff; border:1px solid var(--ligne); border-radius:8px; max-width:780px; margin:5vh auto; overflow:hidden; }
+    .modal-head{ padding:16px; border-bottom:1px solid var(--ligne); background:#fff; }
+    .modal-title{ font-family:"Big Shoulders Text",sans-serif; font-size:24px; font-weight:700; line-height:1.1; }
     .modal-meta{ margin-top:6px; font-size:13px; color:#444; display:flex; gap:12px; flex-wrap:wrap; }
     .modal-body{ padding:16px; }
     .section{ margin-bottom:18px; }
-    .label{
-      font-family: Bayon, sans-serif;
-      letter-spacing:.06em;
-      font-size:14px; color:#333; margin-bottom:6px;
-    }
-    .ingredients{
-      white-space: pre-line;
-      padding:12px; border:1px solid var(--ligne); border-radius:6px; background:#fafafa;
-      font-size:14px; color:#222;
-    }
-    .close{
-      all:unset; cursor:pointer; float:right; font-size:16px; line-height:1;
-      border-bottom:1px solid #222; padding-bottom:1px;
-    }
+    .label{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:14px; color:#333; margin-bottom:6px; }
+    .ingredients{ white-space: pre-line; padding:12px; border:1px solid var(--ligne); border-radius:6px; background:#fafafa; font-size:14px; color:#222; }
+    .close{ all:unset; cursor:pointer; float:right; font-size:16px; line-height:1; border-bottom:1px solid #222; padding-bottom:1px; }
+    .modal-cover{ width:100%; aspect-ratio: 16 / 9; object-fit: cover; display:block; background:#f4f4f4; border-bottom:1px solid var(--ligne);}
   </style>
 </head>
 <body>
-  <!-- HERO overlay (anim d’entrée) -->
+  <!-- HERO (anim d’entrée) -->
   <div id="hero" class="hero fadeout">
     <h3>BIENVENUE</h3>
-    <img class="title" src="/chez-vincent-titre.png" alt="Chez Vincent - Buvette Cocktail" />
-    <img class="sub"   src="/chez-vincent-soustitre.png" alt="Sous-titre" />
+    <img class="title" src="/static/ui/chez-vincent-titre.png" alt="Chez Vincent - Buvette Cocktail"/>
+    <img class="sub"   src="/static/ui/chez-vincent-soustitre.png" alt="Sous-titre"/>
   </div>
 
-  <header>
-    <div class="brand">
-      <div class="brand-title">CHEZ VINCENT — Cocktails</div>
-    </div>
-  </header>
-
-  <div class="search">
-    <input id="search" type="text" placeholder="Rechercher un cocktail…">
-  </div>
-
-  <div id="app">
-    <div class="center">Chargement des recettes…</div>
-  </div>
+  <header><div class="brand"><div class="brand-title">CHEZ VINCENT — Cocktails</div></div></header>
+  <div class="search"><input id="search" type="text" placeholder="Rechercher un cocktail…"></div>
+  <div id="app"><div class="center">Chargement des recettes…</div></div>
 
   <!-- Modal -->
   <div id="modal" class="modal" aria-hidden="true">
-    <div class="modal-panel" role="dialog" aria-modal="true">
+    <div class="panel" role="dialog" aria-modal="true">
+      <img id="modalImg" class="modal-cover" alt="" />
       <div class="modal-head">
         <button class="close" onclick="closeModal()">fermer</button>
         <div class="modal-title" id="modalTitle"></div>
@@ -349,26 +264,25 @@ HTML_APP = """<!DOCTYPE html>
     let cocktails = [];
     let filteredCocktails = [];
 
-    // Masquer le hero après l’anim (ou dès qu’on a les data)
+    // Masquer hero après anim (ou dès data)
     function hideHero(force=false){
       const h = document.getElementById('hero');
       if(!h) return;
       if(force){ h.classList.add('hidden'); return; }
-      // L'anim fadeout dure 0.6s avec un délai intégré de 2.4s => on masque après ~2.6s
       setTimeout(()=>{ h.classList.add('hidden'); }, 2600);
     }
 
     async function loadCocktails() {
       try {
-        const response = await fetch(API_URL);
+        const response = await fetch(API_URL, { credentials: 'same-origin' });
         if (!response.ok) throw new Error('Erreur');
         cocktails = await response.json();
         filteredCocktails = cocktails;
         renderCocktails();
-        hideHero(true); // si data déjà là, on masque tout de suite
+        hideHero(true);
       } catch (e) {
         document.getElementById('app').innerHTML = '<div class="center">Erreur de chargement</div>';
-        hideHero(); // sinon, on laisse l’anim puis on masque
+        hideHero();
       }
     }
 
@@ -380,6 +294,7 @@ HTML_APP = """<!DOCTYPE html>
       }
       app.innerHTML = '<div class="grid">' + filteredCocktails.map(c => `
         <div class="card" onclick="showDetails('${c.id}')">
+          <img class="cover" src="${escapeHtml(c.image_url || '')}" onerror="this.onerror=null;this.src='/static/ui/placeholder.jpg';" alt="" />
           <div class="card-head"><div class="name">${escapeHtml(c.name)}</div></div>
           <div class="card-body">
             <div class="meta">
@@ -410,6 +325,8 @@ HTML_APP = """<!DOCTYPE html>
     function showDetails(id) {
       const c = cocktails.find(x => x.id === id);
       if (!c) return;
+      document.getElementById('modalImg').src = (c.image_url || '/static/ui/placeholder.jpg');
+      document.getElementById('modalImg').onerror = function(){ this.onerror=null; this.src='/static/ui/placeholder.jpg'; };
       document.getElementById('modalTitle').textContent = c.name || '';
       document.getElementById('modalQuickInfo').innerHTML =
         `<div>${escapeHtml(c.glass || '')}</div>` +
@@ -439,52 +356,55 @@ HTML_APP = """<!DOCTYPE html>
       m.classList.remove('active');
       m.setAttribute('aria-hidden','true');
     }
-
-    // Fermer en cliquant hors panneau
     document.getElementById('modal').addEventListener('click', (e)=>{
       if(e.target.id === 'modal') closeModal();
     });
 
-    // petite util d’échappement
     function escapeHtml(s){
       return (s||'').replace(/[&<>"']/g, m => ({
         '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
       }[m]));
     }
 
-    // Lancer
     loadCocktails();
-    hideHero(); // au cas où on n’ait pas les data tout de suite
+    hideHero();
   </script>
 </body>
 </html>"""
 
+# ----------------------------------------------------------
+# ROUTES + ACCESS GATE
+# ----------------------------------------------------------
+def has_access(request: Request) -> bool:
+    return request.cookies.get("cv_access") == "1"
 
-# ----------------------------------------------------------
-# ROUTES
-# ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-def root():
-    """Page d'accueil de l'app"""
+def root(request: Request):
+    """Page protégée par code : si pas de cookie, on affiche la page d’accès."""
+    if not has_access(request):
+        return HTMLResponse(LOGIN_HTML)
     return HTML_APP
+
+@app.get("/enter", include_in_schema=False)
+def enter(request: Request, code: str = ""):
+    """Validation du code et pose d’un cookie simple (non HttpOnly)."""
+    if code == ACCESS_CODE:
+        resp = RedirectResponse(url="/", status_code=303)
+        # Cookie simple (durée 12h). Pour plus de sécurité, ajoute SameSite/HttpOnly si besoin.
+        resp.set_cookie("cv_access", "1", max_age=60*60*12, path="/")
+        return resp
+    # code invalide -> retour à la page d’accès
+    return HTMLResponse(LOGIN_HTML, status_code=401)
 
 @app.get("/api", include_in_schema=False)
 def api_root():
-    return {
-        "ok": True,
-        "endpoints": ["/api/health", "/api/recipes", "/api/recipes/simple", "/api/recipes/{slug}"]
-    }
+    return {"ok": True, "endpoints": ["/api/health", "/api/recipes", "/api/recipes/simple", "/api/recipes/{slug}"]}
 
 @app.get("/api/health")
 async def health():
     try:
         rows = await load_rows()
-        return {
-            "ok": True, 
-            "csv_url_set": bool(CSV_URL),
-            "recipes_count": len(rows),
-            "status": "operational"
-        }
+        return {"ok": True, "csv_url_set": bool(CSV_URL), "recipes_count": len(rows), "status": "operational"}
     except Exception as e:
         return {"ok": False, "error": str(e), "csv_url_set": bool(CSV_URL)}
 
@@ -511,7 +431,14 @@ async def debug_test_csv():
 @app.get("/api/recipes", response_model=List[Recipe])
 async def list_recipes():
     rows = await load_rows()
-    return [normalize_row(r) for r in rows]
+    out = []
+    for r in rows:
+        n = normalize_row(r)
+        # Image : si CSV possède une colonne "image" (URL), on la garde.
+        # Sinon, fallback sur /static/drinks/<slug>.jpg
+        n.image_url = n.image_url or f"/static/drinks/{n.slug}.jpg"
+        out.append(n)
+    return out
 
 @app.get("/api/recipes/simple", response_model=List[RecipeSimple])
 async def list_recipes_simple():
@@ -524,21 +451,25 @@ async def list_recipes_simple():
             try:
                 data = json.loads(ings_val)
                 ingredients_text = "\n".join([
-                    f"{ing.get('item', '')} - {ing.get('ml', '')}ml" 
+                    f"{ing.get('item', '')} - {ing.get('ml', '')}ml"
                     for ing in data if ing.get('item')
                 ])
             except:
                 ingredients_text = r.get("spec_ml") or r.get("spec_oz") or ""
         else:
             ingredients_text = r.get("spec_ml") or r.get("spec_oz") or ""
-        
+
+        rid = slugify(r.get("slug") or r.get("name", ""))
+        image_url = (r.get("image") or "").strip() or f"/static/drinks/{rid}.jpg"
+
         result.append(RecipeSimple(
-            id=slugify(r.get("slug") or r.get("name", "")),
+            id=rid,
             name=(r.get("name") or "").strip(),
             glass=(r.get("glass") or "Non spécifié").strip(),
             method=(r.get("method") or "Non spécifié").strip(),
             ingredients_text=ingredients_text,
-            tags=(r.get("tags") or "").strip()
+            tags=(r.get("tags") or "").strip(),
+            image_url=image_url
         ))
     return result
 
@@ -549,7 +480,9 @@ async def get_recipe(slug: str):
     for r in rows:
         current = slugify(r.get("slug") or r.get("name", ""))
         if current == wanted:
-            return normalize_row(r)
+            n = normalize_row(r)
+            n.image_url = n.image_url or f"/static/drinks/{n.slug}.jpg"
+            return n
     raise HTTPException(404, detail="Not found")
 
 # ----------------------------------------------------------
@@ -602,6 +535,9 @@ def normalize_row(raw: dict) -> Recipe:
             ingredients = [Ingredient(**x) for x in data]
         except Exception:
             pass
+
+    image_url = (raw.get("image") or "").strip() or None
+
     return Recipe(
         name=(raw.get("name") or "").strip(),
         slug=slug,
@@ -618,6 +554,7 @@ def normalize_row(raw: dict) -> Recipe:
         notes=raw.get("notes"),
         source=raw.get("source"),
         last_update=raw.get("last_update"),
+        image_url=image_url
     )
 
 @app.exception_handler(404)
