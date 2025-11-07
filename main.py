@@ -52,7 +52,7 @@ class RecipeSimple(BaseModel):
 # ----------------------------------------------------------
 # APP
 # ----------------------------------------------------------
-app = FastAPI(title="Cocktail Recipes API", version="1.8.0")
+app = FastAPI(title="Cocktail Recipes API", version="1.9.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,7 +62,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static (pour les visuels)
+# Fichiers statiques (visuels)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ----------------------------------------------------------
@@ -112,15 +112,24 @@ def google_pubhtml_to_csv(url: str) -> str:
                     doc_id = parts[4]
                     q = parse_qs(u.query, keep_blank_values=True)
                     gid = q.get("gid", ["0"])[0]
-                    new_url = f"https://docs.google.com/spreadsheets/d/e/{doc_id}/pub?gid={gid}&single=true&output=csv"
-                    return new_url
+                    return f"https://docs.google.com/spreadsheets/d/e/{doc_id}/pub?gid={gid}&single=true&output=csv"
         return url
-    except Exception as e:
-        print(f"Erreur conversion URL: {e}")
+    except Exception:
         return url
 
 # ----------------------------------------------------------
-# PAGES (HTML) — Dark minimal, sans images de drinks
+# ACCES (gate)
+# ----------------------------------------------------------
+def has_access(request: Request) -> bool:
+    return request.cookies.get("cv_access") == "1"
+
+def require_access(request: Request):
+    if not has_access(request):
+        # On renvoie 401 côté API, et la page login côté /
+        raise HTTPException(401, detail="Unauthorized")
+
+# ----------------------------------------------------------
+# PAGES HTML — Dark + hero qui devient header
 # ----------------------------------------------------------
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="fr">
@@ -132,45 +141,35 @@ LOGIN_HTML = """<!DOCTYPE html>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Bayon&family=Big+Shoulders+Text:wght@400;700&family=Raleway:wght@300;400&display=swap" rel="stylesheet">
   <style>
-    :root{
-      --bg:#0f0f14;      /* fond global très sombre */
-      --panel:#17181f;   /* panneaux */
-      --line:#2a2b31;    /* traits */
-      --text:#e5e7eb;    /* texte principal */
-      --muted:#9aa0a6;   /* secondaire */
-    }
+    :root{ --bg:#0f0f14; --panel:#17181f; --line:#2a2b31; --text:#e5e7eb; --muted:#9aa0a6; }
     *{margin:0;padding:0;box-sizing:border-box}
-    html,body{height:100%}
     body{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    .hero{ position:relative; text-align:center; padding:40px 16px; border-bottom:1px solid var(--line); }
-    .hero h3{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:38px; color:var(--text); }
-    .hero img{ width:min(60%,520px); display:block; margin:10px auto 0; }
-    .wrap{ min-height:calc(100% - 180px); display:flex; align-items:center; justify-content:center; padding:24px; }
+    .wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
     .card{ width:100%; max-width:460px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
-    .head{ padding:18px; border-bottom:1px solid var(--line); }
-    .title{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:20px; color:var(--text); }
+    .head{ padding:18px; border-bottom:1px solid var(--line); text-align:center; }
+    .title{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:30px; }
     .body{ padding:18px; }
     label{ display:block; font-size:14px; color:var(--muted); margin-bottom:6px; }
     input[type="password"]{
       width:100%; border:none; border-bottom:1px solid var(--text);
       background:transparent; color:var(--text); padding:10px 2px; font-size:16px; outline:none;
     }
-    .row{ margin-top:14px; }
-    button{
-      all:unset; border:1px solid var(--text); color:var(--text);
-      padding:8px 14px; border-radius:4px; cursor:pointer;
-    }
+    .row{ margin-top:14px; display:flex; justify-content:center; }
+    button{ all:unset; border:1px solid var(--text); color:var(--text); padding:8px 14px; border-radius:4px; cursor:pointer; }
+    .logos{ text-align:center; padding:16px 0 6px; border-bottom:1px solid var(--line); background:transparent; }
+    .logos img{ display:block; margin:0 auto 10px; height:auto; }
+    .logos .title{ width:min(70%,640px); }
+    .logos .subtitle{ width:min(60%,520px); opacity:.9; }
   </style>
 </head>
 <body>
-  <div class="hero">
-    <h3>BIENVENUE</h3>
-    <img src="/static/ui/chez-vincent-titre.png" alt="Chez Vincent - Buvette Cocktail"/>
-    <img src="/static/ui/chez-vincent-soustitre.png" alt="Sous-titre"/>
+  <div class="logos">
+    <img class="title" src="/static/ui/chez-vincent-titre.png" alt="Chez Vincent"/>
+    <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png" alt="Sous-titre"/>
   </div>
   <div class="wrap">
     <form class="card" method="GET" action="/enter">
-      <div class="head"><div class="title">Entrer sur l’app</div></div>
+      <div class="head"><div class="title">BIENVENUE</div></div>
       <div class="body">
         <label for="code">Code d’accès</label>
         <input id="code" name="code" type="password" placeholder="••••••••" required />
@@ -187,46 +186,51 @@ HTML_APP = """<!DOCTYPE html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Chez Vincent's Recipes</title>
-  <meta name="description" content="Buvette cocktail — liste des recettes" />
+  <meta name="description" content="Buvette cocktail — recettes" />
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Bayon&family=Big+Shoulders+Text:wght@400;700&family=Raleway:wght@300;400&display=swap" rel="stylesheet">
   <style>
-    :root{
-      --bg:#0f0f14;
-      --panel:#17181f;
-      --line:#2a2b31;
-      --text:#e5e7eb;
-      --muted:#9aa0a6;
-    }
+    :root{ --bg:#0f0f14; --panel:#17181f; --line:#2a2b31; --text:#e5e7eb; --muted:#9aa0a6; --headerH:96px; }
     *{margin:0;padding:0;box-sizing:border-box}
-    html,body{height:100%}
     body{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 
-    /* HERO (entrée) */
-    .hero{ position: fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--bg); color:var(--text); z-index:999; }
-    .hero.hidden{ display:none; }
-    .hero h3{ font-family: Bayon, sans-serif; letter-spacing:.08em; font-size:clamp(42px,10vw,90px); line-height:1; margin-bottom:.2em; opacity:0; transform:translateY(-40px); animation:fadeDown 1.2s ease-out forwards .05s; text-align:center; }
-    .hero img{ width:min(60%,520px); display:block; margin:.35rem auto 0; opacity:0; transform:translateY(-20px); }
-    .hero img.title{ animation:fadeUp 1.2s ease-out forwards .5s;}
-    .hero img.sub{   animation:fadeUpS 1.2s ease-out forwards 1.0s;}
-    .hero.fadeout{ animation:heroOut .55s ease-in forwards 1.8s;} /* accéléré */
+    /* -------- HERO qui devient HEADER -------- */
+    .heroHeader{
+      position: fixed; inset:0; z-index:999;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      background:var(--bg); border-bottom:1px solid transparent;
+      transition: height .7s ease, padding .7s ease, transform .7s ease, border-color .7s ease, background .7s ease;
+      height: 100vh; padding: 24px 16px;
+    }
+    .heroHeader .logoWrap{
+      display:flex; flex-direction:column; align-items:center; gap:8px;
+      transform: translateY(0); transition: transform .7s ease, scale .7s ease, opacity .7s ease;
+    }
+    .heroHeader img{ display:block; height:auto; }
+    .heroHeader .title{ width:min(70%, 640px); }
+    .heroHeader .subtitle{ width:min(60%, 520px); opacity:.9; }
 
-    /* Page container (transition d’apparition) */
-    .page{ opacity:0; transform: translateY(6px); transition: opacity .45s ease, transform .45s ease; }
+    /* ÉTAT "réduit" = header sticky */
+    .heroHeader.shrink{
+      height: var(--headerH);
+      padding: 8px 12px;
+      align-items:center; justify-content:center;
+      border-bottom-color: var(--line);
+      background: rgba(15,15,20,0.92);
+    }
+    .heroHeader.shrink .logoWrap{
+      transform: translateY(0);
+    }
+    .heroHeader.shrink .title{ width: 260px; }
+    .heroHeader.shrink .subtitle{ width: 220px; opacity:.85; }
+
+    /* Contenu page (fade-in) */
+    .page{ opacity:0; transform: translateY(8px); transition: opacity .45s ease .15s, transform .45s ease .15s; }
     .page.show{ opacity:1; transform: translateY(0); }
 
-    @keyframes fadeDown{to{opacity:1; transform:translateY(0);}}
-    @keyframes fadeUp{to{opacity:1; transform:translateY(-8px);}}
-    @keyframes fadeUpS{to{opacity:1; transform:translateY(-4px);}}
-    @keyframes heroOut{to{opacity:0; visibility:hidden;}}
-
-    /* Header (avec tes images, pas de texte titre) */
-    header{ padding:18px 16px; border-bottom:1px solid var(--line); }
-    .brand{ display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px; }
-    .brand img{ display:block; height:auto; }
-    .brand .title{ width:min(70%,640px); }
-    .brand .subtitle{ width:min(60%,520px); opacity:.9; }
+    /* Espace en haut pour ne pas passer sous le header sticky */
+    main{ padding-top: calc(var(--headerH) + 8px); }
 
     /* Search */
     .search{ padding:16px; border-bottom:1px solid var(--line); }
@@ -236,7 +240,7 @@ HTML_APP = """<!DOCTYPE html>
     }
     .search input::placeholder{ color:var(--muted); }
 
-    /* Grid (cartes sans images) */
+    /* Grid */
     .grid{ padding:16px; display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }
     .card{ background:var(--panel); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
     .card-head{ padding:12px; border-bottom:1px solid var(--line); }
@@ -246,7 +250,6 @@ HTML_APP = """<!DOCTYPE html>
     .meta .item{ border-bottom:1px solid var(--line); padding-bottom:1px; }
     .tags{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; font-size:12px; color:var(--muted); }
     .tag{ border:1px solid var(--line); border-radius:999px; padding:3px 8px; }
-
     .center{ text-align:center; padding:48px 16px; color:var(--muted); }
 
     /* Modal */
@@ -264,24 +267,20 @@ HTML_APP = """<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <!-- HERO (anim d’entrée) -->
-  <div id="hero" class="hero fadeout">
-    <h3>BIENVENUE</h3>
-    <img class="title" src="/static/ui/chez-vincent-titre.png" alt="Chez Vincent - Buvette Cocktail"/>
-    <img class="sub subtitle"   src="/static/ui/chez-vincent-soustitre.png" alt="Sous-titre"/>
-  </div>
+  <!-- HERO qui devient HEADER -->
+  <header id="heroHeader" class="heroHeader" role="banner">
+    <div class="logoWrap">
+      <img class="title" src="/static/ui/chez-vincent-titre.png" alt="Chez Vincent"/>
+      <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png" alt="Sous-titre"/>
+    </div>
+  </header>
 
-  <!-- PAGE (fade-in après le hero) -->
+  <!-- PAGE -->
   <div id="page" class="page">
-    <header>
-      <div class="brand">
-        <img class="title" src="/static/ui/chez-vincent-titre.png" alt="Titre"/>
-        <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png" alt="Sous-titre"/>
-      </div>
-    </header>
-
-    <div class="search"><input id="search" type="text" placeholder="Rechercher un cocktail…"></div>
-    <div id="app"><div class="center">Chargement des recettes…</div></div>
+    <main>
+      <div class="search"><input id="search" type="text" placeholder="Rechercher un cocktail…"></div>
+      <div id="app"><div class="center">Chargement des recettes…</div></div>
+    </main>
   </div>
 
   <!-- Modal -->
@@ -300,16 +299,19 @@ HTML_APP = """<!DOCTYPE html>
     const API_URL = '/api/recipes/simple';
     let cocktails = []; let filteredCocktails = [];
 
-    function hideHeroAndShowPage(immediate=false){
-      const hero = document.getElementById('hero');
+    // Lance la réduction du hero en header sticky + fade-in du contenu
+    function startTransition(immediate=false){
+      const header = document.getElementById('heroHeader');
       const page = document.getElementById('page');
       if(immediate){
-        hero.classList.add('hidden');
+        header.classList.add('shrink');
         page.classList.add('show');
         return;
       }
-      // masque le hero après son fadeout, puis fade-in de la page
-      setTimeout(()=>{ hero.classList.add('hidden'); page.classList.add('show'); }, 1850);
+      // Démarre la réduction
+      header.classList.add('shrink');
+      // On déclenche l'apparition de la page légèrement après
+      setTimeout(()=> page.classList.add('show'), 180);
     }
 
     async function loadCocktails() {
@@ -319,12 +321,12 @@ HTML_APP = """<!DOCTYPE html>
         cocktails = await res.json();
         filteredCocktails = cocktails;
         renderCocktails();
-        // data ok -> on montre la page tout de suite
-        hideHeroAndShowPage(true);
+        // Data prêtes -> transition immédiate
+        startTransition(true);
       } catch (e) {
         document.getElementById('app').innerHTML = '<div class="center">Erreur de chargement</div>';
-        // pas de data -> on laisse l’anim puis on enchaîne
-        hideHeroAndShowPage(false);
+        // Fallback: on déclenche quand même la transition après un court délai
+        setTimeout(()=>startTransition(false), 700);
       }
     }
 
@@ -402,21 +404,17 @@ HTML_APP = """<!DOCTYPE html>
       }[m]));
     }
 
-    // Lancer
+    // Go
     loadCocktails();
   </script>
 </body>
 </html>"""
 
 # ----------------------------------------------------------
-# ROUTES + ACCESS GATE
+# ROUTES (gate appliqué à la page ET à l'API)
 # ----------------------------------------------------------
-def has_access(request: Request) -> bool:
-    return request.cookies.get("cv_access") == "1"
-
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def root(request: Request):
-    # Gate par code (cookie)
     if not has_access(request):
         return HTMLResponse(LOGIN_HTML)
     return HTML_APP
@@ -430,11 +428,13 @@ def enter(request: Request, code: str = ""):
     return HTMLResponse(LOGIN_HTML, status_code=401)
 
 @app.get("/api", include_in_schema=False)
-def api_root():
+def api_root(request: Request):
+    require_access(request)
     return {"ok": True, "endpoints": ["/api/health", "/api/recipes", "/api/recipes/simple", "/api/recipes/{slug}"]}
 
 @app.get("/api/health")
-async def health():
+async def health(request: Request):
+    require_access(request)
     try:
         rows = await load_rows()
         return {"ok": True, "csv_url_set": bool(CSV_URL), "recipes_count": len(rows), "status": "operational"}
@@ -442,7 +442,8 @@ async def health():
         return {"ok": False, "error": str(e), "csv_url_set": bool(CSV_URL)}
 
 @app.get("/api/debug/test-csv", include_in_schema=False)
-async def debug_test_csv():
+async def debug_test_csv(request: Request):
+    require_access(request)
     if not CSV_URL:
         return {"error": "CSV_URL non définie"}
     effective_url = google_pubhtml_to_csv(CSV_URL)
@@ -462,12 +463,14 @@ async def debug_test_csv():
         return {"error": str(e), "original_url": CSV_URL, "effective_url": effective_url}
 
 @app.get("/api/recipes", response_model=List[Recipe])
-async def list_recipes():
+async def list_recipes(request: Request):
+    require_access(request)
     rows = await load_rows()
     return [normalize_row(r) for r in rows]
 
 @app.get("/api/recipes/simple", response_model=List[RecipeSimple])
-async def list_recipes_simple():
+async def list_recipes_simple(request: Request):
+    require_access(request)
     rows = await load_rows()
     result = []
     for r in rows:
@@ -493,7 +496,8 @@ async def list_recipes_simple():
     return result
 
 @app.get("/api/recipes/{slug}", response_model=Recipe)
-async def get_recipe(slug: str):
+async def get_recipe(slug: str, request: Request):
+    require_access(request)
     rows = await load_rows()
     wanted = slugify(slug.strip())
     for r in rows:
