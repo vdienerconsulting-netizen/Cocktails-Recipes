@@ -13,11 +13,11 @@ from urllib.parse import urlparse, parse_qs
 # ----------------------------------------------------------
 CSV_URL = os.environ.get("CSV_URL", "").strip()
 ACCESS_CODE = os.environ.get("ACCESS_CODE", "orgeatsalécestmeilleur")
-# Durée du cookie d’accès en secondes (None => cookie de session)
 ACCESS_TTL = os.environ.get("ACCESS_TTL")
 ACCESS_TTL = int(ACCESS_TTL) if (ACCESS_TTL and ACCESS_TTL.isdigit()) else None
 
 CACHE_TTL = 60  # secondes
+STATIC_BUST = "20251107"  # cache-busting assets
 _cache = {"at": 0.0, "rows": [], "meta": {}}
 
 # ----------------------------------------------------------
@@ -56,7 +56,7 @@ class RecipeSimple(BaseModel):
 # ----------------------------------------------------------
 # APP
 # ----------------------------------------------------------
-app = FastAPI(title="Cocktail Recipes API", version="2.0.0")
+app = FastAPI(title="Cocktail Recipes API", version="2.0.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -130,9 +130,11 @@ def require_access(request: Request):
         raise HTTPException(401, detail="Unauthorized")
 
 # ----------------------------------------------------------
-# HTML — Dark + hero qui devient header (titre plus petit)
+# HTML — Dark + hero centré → réduit en header + titres plus petits
 # ----------------------------------------------------------
-LOGIN_HTML = """<!DOCTYPE html>
+def login_html() -> str:
+    bust = STATIC_BUST
+    return f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
@@ -142,48 +144,50 @@ LOGIN_HTML = """<!DOCTYPE html>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Bayon&family=Big+Shoulders+Text:wght@400;700&family=Raleway:wght@300;400&display=swap" rel="stylesheet">
   <style>
-    :root{ --bg:#0f0f14; --panel:#17181f; --line:#2a2b31; --text:#e5e7eb; --muted:#9aa0a6; }
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    .logos{ text-align:center; padding:20px 16px; border-bottom:1px solid var(--line); }
-    .logos img{ display:block; margin:0 auto 8px; }
-    .logos .title{ width:min(52%, 520px); }      /* plus petit */
-    .logos .subtitle{ width:min(45%, 440px); opacity:.9; }
-    .wrap{ min-height:calc(100vh - 120px); display:flex; align-items:center; justify-content:center; padding:24px; }
-    .card{ width:100%; max-width:440px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
-    .head{ padding:16px; border-bottom:1px solid var(--line); text-align:center; }
-    .title{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:26px; }
-    .body{ padding:16px; }
-    label{ display:block; font-size:14px; color:var(--muted); margin-bottom:6px; }
-    input[type="password"]{
+    :root{{ --bg:#0f0f14; --panel:#17181f; --line:#2a2b31; --text:#e5e7eb; --muted:#9aa0a6; }}
+    *{{margin:0;padding:0;box-sizing:border-box}}
+    body{{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }}
+    .wrap{{ min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; padding:24px; }}
+    .logos img{{ display:block; height:auto; margin:0 auto 8px; }}
+    .logos .title{{ width:min(48%, 460px); }}      /* plus petit */
+    .logos .subtitle{{ width:min(42%, 400px); opacity:.9; }}
+
+    .card{{ width:100%; max-width:440px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }}
+    .head{{ padding:16px; border-bottom:1px solid var(--line); text-align:center; }}
+    .titleTxt{{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:24px; }}
+    .body{{ padding:16px; }}
+    label{{ display:block; font-size:14px; color:var(--muted); margin-bottom:6px; }}
+    input[type="password"]{{
       width:100%; border:none; border-bottom:1px solid var(--text);
       background:transparent; color:var(--text); padding:10px 2px; font-size:16px; outline:none;
-    }
-    .row{ margin-top:14px; display:flex; justify-content:center; }
-    button{ all:unset; border:1px solid var(--text); color:var(--text); padding:8px 14px; border-radius:4px; cursor:pointer; }
-    .hint{ text-align:center; color:var(--muted); font-size:12px; margin-top:10px; }
+    }}
+    .row{{ margin-top:14px; display:flex; justify-content:center; }}
+    button{{ all:unset; border:1px solid var(--text); color:var(--text); padding:8px 14px; border-radius:4px; cursor:pointer; }}
+    .hint{{ text-align:center; color:var(--muted); font-size:12px; margin-top:10px; }}
   </style>
 </head>
 <body>
-  <div class="logos">
-    <img class="title" src="/static/ui/chez-vincent-titre.png" alt="Chez Vincent"/>
-    <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png" alt="Sous-titre"/>
-  </div>
   <div class="wrap">
+    <div class="logos">
+      <img class="title" src="/static/ui/chez-vincent-titre.png?v={bust}" alt="Chez Vincent"/>
+      <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png?v={bust}" alt="Sous-titre"/>
+    </div>
     <form class="card" method="GET" action="/enter">
-      <div class="head"><div class="title">BIENVENUE</div></div>
+      <div class="head"><div class="titleTxt">BIENVENUE</div></div>
       <div class="body">
         <label for="code">Code d’accès</label>
         <input id="code" name="code" type="password" placeholder="••••••••" required />
         <div class="row"><button type="submit">Valider</button></div>
-        <div class="hint">Astuce: ajoute /logout à l’URL pour sortir.</div>
+        <div class="hint">Besoin de sortir ? Visite <code>/logout</code>.</div>
       </div>
     </form>
   </div>
 </body>
 </html>"""
 
-HTML_APP = """<!DOCTYPE html>
+def app_html() -> str:
+    bust = STATIC_BUST
+    return f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
@@ -194,95 +198,99 @@ HTML_APP = """<!DOCTYPE html>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Bayon&family=Big+Shoulders+Text:wght@400;700&family=Raleway:wght@300;400&display=swap" rel="stylesheet">
   <style>
-    :root{
+    :root{{
       --bg:#0f0f14; --panel:#17181f; --line:#2a2b31; --text:#e5e7eb; --muted:#9aa0a6;
-      --headerH:84px;                 /* header réduit plus petit */
-      --titleW_full:52vw;             /* largeur titres en plein écran */
-      --subtitleW_full:46vw;
-      --titleW_small:220px;           /* largeur titres réduits */
-      --subtitleW_small:190px;
-      --anim_header:.7s ease;         /* durée/aisance réduction */
-      --anim_page:.45s ease .15s;     /* fade-in contenu */
-      --intro_min:900;                /* ms: durée minimale affichage du hero */
-    }
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      --headerH:80px;                 /* header réduit un peu plus petit */
+      --titleW_full:44vw;             /* largeur titres en plein écran (plus petit) */
+      --subtitleW_full:38vw;
+      --titleW_small:210px;           /* largeur titres réduits */
+      --subtitleW_small:180px;
+      --anim_header:.7s ease;
+      --anim_page:.45s ease .15s;
+      --intro_min:900;                /* ms */
+    }}
+    *{{margin:0;padding:0;box-sizing:border-box}}
+    body{{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }}
 
-    /* HERO->HEADER */
-    .heroHeader{
-      position: fixed; inset:0; z-index:999;
+    /* ÉCRAN INTRO: fond noir + hero centré seul */
+    .intro{{ position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; background:var(--bg); }}
+    .intro .logoWrap{{ display:flex; flex-direction:column; align-items:center; gap:8px; }}
+    .intro img{{ display:block; height:auto; }}
+    .intro .title{{ width:min(var(--titleW_full), 480px); }}
+    .intro .subtitle{{ width:min(var(--subtitleW_full), 420px); opacity:.95; }}
+
+    /* HEADER collant (le hero réduit vient s’y “placer”) */
+    header.heroHeader{{
+      position: fixed; top:0; left:0; right:0; z-index:999;
       display:flex; flex-direction:column; align-items:center; justify-content:center;
-      background:var(--bg); border-bottom:1px solid transparent;
-      transition: height var(--anim_header), padding var(--anim_header), transform var(--anim_header), border-color var(--anim_header), background var(--anim_header);
-      height: 100vh; padding: 24px 16px;
-    }
-    .heroHeader .logoWrap{
-      display:flex; flex-direction:column; align-items:center; gap:8px;
-      transform: translateY(0); transition: transform var(--anim_header), scale var(--anim_header), opacity var(--anim_header);
-    }
-    .heroHeader img{ display:block; height:auto; }
-    .heroHeader .title{ width:min(var(--titleW_full), 520px); }    /* plus petit qu’avant */
-    .heroHeader .subtitle{ width:min(var(--subtitleW_full), 440px); opacity:.9; }
-
-    .heroHeader.shrink{
-      height: var(--headerH);
-      padding: 8px 12px;
-      border-bottom-color: var(--line);
-      background: rgba(15,15,20,0.92);
-    }
-    .heroHeader.shrink .title{ width: var(--titleW_small); }
-    .heroHeader.shrink .subtitle{ width: var(--subtitleW_small); opacity:.85; }
+      background: rgba(15,15,20,0.92); border-bottom:1px solid var(--line);
+      height: var(--headerH); padding: 8px 12px;
+      transform: translateY(-110%);            /* caché au départ */
+      transition: transform var(--anim_header);
+    }}
+    header.heroHeader.show{{ transform: translateY(0); }}
+    header.heroHeader .logoWrap{{ display:flex; flex-direction:column; align-items:center; gap:6px; }}
+    header.heroHeader .title{{ width: var(--titleW_small); }}
+    header.heroHeader .subtitle{{ width: var(--subtitleW_small); opacity:.85; }}
 
     /* PAGE */
-    .page{ opacity:0; transform: translateY(8px); transition: opacity var(--anim_page), transform var(--anim_page); }
-    .page.show{ opacity:1; transform: translateY(0); }
-    main{ padding-top: calc(var(--headerH) + 8px); }
+    .page{{ opacity:0; transform: translateY(8px); transition: opacity var(--anim_page), transform var(--anim_page); }}
+    .page.show{{ opacity:1; transform: translateY(0); }}
+    main{{ padding-top: calc(var(--headerH) + 8px); }}
 
     /* Search */
-    .search{ padding:16px; border-bottom:1px solid var(--line); }
-    .search input{
+    .search{{ padding:16px; border-bottom:1px solid var(--line); }}
+    .search input{{
       width:100%; font:400 16px/1.3 Raleway, sans-serif; padding:10px 2px;
       border:none; outline:none; background:transparent; border-bottom:1px solid var(--text); color:var(--text);
-    }
-    .search input::placeholder{ color:var(--muted); }
+    }}
+    .search input::placeholder{{ color:var(--muted); }}
 
     /* Grid */
-    .grid{ padding:16px; display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }
-    .card{ background:var(--panel); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
-    .card-head{ padding:12px; border-bottom:1px solid var(--line); }
-    .name{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:20px; line-height:1.1; color:var(--text); }
-    .card-body{ padding:12px; }
-    .meta{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px; font-size:13px; color:var(--muted); }
-    .meta .item{ border-bottom:1px solid var(--line); padding-bottom:1px; }
-    .tags{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; font-size:12px; color:var(--muted); }
-    .tag{ border:1px solid var(--line); border-radius:999px; padding:3px 8px; }
-    .center{ text-align:center; padding:48px 16px; color:var(--muted); }
+    .grid{{ padding:16px; display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }}
+    .card{{ background:var(--panel); border:1px solid var(--line); border-radius:6px; cursor:pointer; }}
+    .card-head{{ padding:12px; border-bottom:1px solid var(--line); }}
+    .name{{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:20px; line-height:1.1; color:var(--text); text-transform: uppercase; }}
+    .card-body{{ padding:12px; }}
+    .meta{{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px; font-size:13px; color:var(--muted); }}
+    .meta .item{{ border-bottom:1px solid var(--line); padding-bottom:1px; }}
+    .tags{{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; font-size:12px; color:var(--muted); }}
+    .tag{{ border:1px solid var(--line); border-radius:999px; padding:3px 8px; }}
+    .center{{ text-align:center; padding:48px 16px; color:var(--muted); }}
 
     /* Modal */
-    .modal{ position: fixed; inset:0; display:none; background: rgba(0,0,0,.4); z-index:998; padding:16px; }
-    .modal.active{ display:block; }
-    .panel{ background:var(--panel); border:1px solid var(--line); border-radius:8px; max-width:780px; margin:5vh auto; overflow:hidden; }
-    .modal-head{ padding:16px; border-bottom:1px solid var(--line); }
-    .modal-title{ font-family:"Big Shoulders Text",sans-serif; font-size:24px; font-weight:700; line-height:1.1; color:var(--text); }
-    .modal-meta{ margin-top:6px; font-size:13px; color:var(--muted); display:flex; gap:12px; flex-wrap:wrap; }
-    .modal-body{ padding:16px; color:var(--text); }
-    .section{ margin-bottom:18px; }
-    .label{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:14px; color:var(--muted); margin-bottom:6px; }
-    .ingredients{ white-space: pre-line; padding:12px; border:1px solid var(--line); border-radius:6px; background:#111218; font-size:14px; color:var(--text); }
-    .close{ all:unset; cursor:pointer; float:right; font-size:16px; line-height:1; border-bottom:1px solid var(--text); padding-bottom:1px; color:var(--text); }
+    .modal{{ position: fixed; inset:0; display:none; background: rgba(0,0,0,.4); z-index:998; padding:16px; }}
+    .modal.active{{ display:block; }}
+    .panel{{ background:var(--panel); border:1px solid var(--line); border-radius:8px; max-width:780px; margin:5vh auto; overflow:hidden; }}
+    .modal-head{{ padding:16px; border-bottom:1px solid var(--line); }}
+    .modal-title{{ font-family:"Big Shoulders Text",sans-serif; font-size:24px; font-weight:700; line-height:1.1; color:var(--text); }}
+    .modal-meta{{ margin-top:6px; font-size:13px; color:var(--muted); display:flex; gap:12px; flex-wrap:wrap; }}
+    .modal-body{{ padding:16px; color:var(--text); }}
+    .section{{ margin-bottom:18px; }}
+    .label{{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:14px; color:var(--muted); margin-bottom:6px; }}
+    .ingredients{{ white-space: pre-line; padding:12px; border:1px solid var(--line); border-radius:6px; background:#111218; font-size:14px; color:var(--text); }}
+    .close{{ all:unset; cursor:pointer; float:right; font-size:16px; line-height:1; border-bottom:1px solid var(--text); padding-bottom:1px; color:var(--text); }}
   </style>
 </head>
 <body>
-  <!-- HERO qui devient HEADER -->
-  <header id="heroHeader" class="heroHeader" role="banner">
+  <!-- 1) INTRO: fond noir + hero centré -->
+  <div id="intro" class="intro" aria-hidden="false">
     <div class="logoWrap">
-      <img class="title" src="/static/ui/chez-vincent-titre.png" alt="Chez Vincent"/>
-      <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png" alt="Sous-titre"/>
+      <img class="title" src="/static/ui/chez-vincent-titre.png?v={bust}" alt="Chez Vincent"/>
+      <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png?v={bust}" alt="Sous-titre"/>
+    </div>
+  </div>
+
+  <!-- 2) HEADER: le hero réduit vient s'y placer -->
+  <header id="heroHeader" class="heroHeader" role="banner" aria-hidden="true">
+    <div class="logoWrap">
+      <img class="title" src="/static/ui/chez-vincent-titre.png?v={bust}" alt="Chez Vincent"/>
+      <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png?v={bust}" alt="Sous-titre"/>
     </div>
   </header>
 
-  <!-- PAGE -->
-  <div id="page" class="page">
+  <!-- 3) PAGE -->
+  <div id="page" class="page" aria-hidden="true">
     <main>
       <div class="search"><input id="search" type="text" placeholder="Rechercher un cocktail…"></div>
       <div id="app"><div class="center">Chargement des recettes…</div></div>
@@ -304,23 +312,25 @@ HTML_APP = """<!DOCTYPE html>
   <script>
     const API_URL = '/api/recipes/simple';
     let cocktails = []; let filteredCocktails = [];
+    let dataReady = false, minTimeElapsed = false;
+    const INTRO_MIN = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--intro_min')) || 900;
 
-    // Synchronisation intro: on attend à la fois les data ET un délai mini
-    let dataReady = false;
-    let minTimeElapsed = false;
-    setTimeout(() => { minTimeElapsed = true; maybeStartTransition(); }, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--intro_min')) || 900);
+    // Timer min d'intro
+    setTimeout(() => { minTimeElapsed = true; maybeStart(); }, INTRO_MIN);
 
-    function maybeStartTransition(){
-      if(dataReady && minTimeElapsed){
-        startTransition();
-      }
+    function maybeStart(){
+      if(dataReady && minTimeElapsed){ startTransition(); }
     }
 
     function startTransition(){
+      // cache l'intro, fait apparaître le header (hero réduit) puis la page
+      const intro = document.getElementById('intro');
       const header = document.getElementById('heroHeader');
       const page = document.getElementById('page');
-      header.classList.add('shrink');
-      setTimeout(()=> page.classList.add('show'), 180);
+
+      if(intro){ intro.style.display = 'none'; }
+      if(header){ header.classList.add('show'); header.setAttribute('aria-hidden','false'); }
+      setTimeout(()=>{ page.classList.add('show'); page.setAttribute('aria-hidden','false'); }, 180);
     }
 
     async function loadCocktails() {
@@ -330,37 +340,34 @@ HTML_APP = """<!DOCTYPE html>
         cocktails = await res.json();
         filteredCocktails = cocktails;
         renderCocktails();
-        dataReady = true;
-        maybeStartTransition();
+        dataReady = true; maybeStart();
       } catch (e) {
         document.getElementById('app').innerHTML = '<div class="center">Erreur de chargement</div>';
-        // Même si erreur réseau, on laisse vivre l'intro min, puis on transitionne
-        dataReady = true;
-        maybeStartTransition();
+        dataReady = true; maybeStart();
       }
     }
 
     function renderCocktails() {
       const app = document.getElementById('app');
       if (!filteredCocktails.length) { app.innerHTML = '<div class="center">Aucun cocktail trouvé</div>'; return; }
-      app.innerHTML = '<div class="grid">' + filteredCocktails.map(c => `
+      app.innerHTML = '<div class="grid">' + filteredCocktails.map(c => {
+        const nm = (c.name || '').toUpperCase();
+        return `
         <div class="card" onclick="showDetails('${c.id}')">
-          <div class="card-head"><div class="name">${escapeHtml(c.name)}</div></div>
+          <div class="card-head"><div class="name">${escapeHtml(nm)}</div></div>
           <div class="card-body">
             <div class="meta">
               <div class="item">${escapeHtml(c.glass || '')}</div>
               <div class="item">${escapeHtml(c.method || '')}</div>
             </div>
-            ${
-              c.tags
-              ? '<div class="tags">' + c.tags.split(',').map(t => (
-                  '<span class="tag">' + escapeHtml(t.trim()) + '</span>'
-                )).join('') + '</div>'
-              : ''
-            }
+            ${ c.tags
+                ? '<div class="tags">' + c.tags.split(',').map(t => (
+                    '<span class="tag">' + escapeHtml(t.trim()) + '</span>'
+                  )).join('') + '</div>'
+                : '' }
           </div>
-        </div>
-      `).join('') + '</div>';
+        </div>`;
+      }).join('') + '</div>';
     }
 
     document.getElementById('search').addEventListener('input', (e) => {
@@ -375,7 +382,7 @@ HTML_APP = """<!DOCTYPE html>
     function showDetails(id) {
       const c = cocktails.find(x => x.id === id);
       if (!c) return;
-      document.getElementById('modalTitle').textContent = c.name || '';
+      document.getElementById('modalTitle').textContent = (c.name || '').toUpperCase();
       document.getElementById('modalQuickInfo').innerHTML =
         `<div>${escapeHtml(c.glass || '')}</div>` +
         `<div>${escapeHtml(c.method || '')}</div>`;
@@ -426,20 +433,19 @@ HTML_APP = """<!DOCTYPE html>
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def root(request: Request):
     if not has_access(request):
-        return HTMLResponse(LOGIN_HTML)
-    return HTML_APP
+        return HTMLResponse(login_html())
+    return app_html()
 
 @app.get("/enter", include_in_schema=False)
 def enter(request: Request, code: str = ""):
     if code == ACCESS_CODE:
         resp = RedirectResponse(url="/", status_code=303)
-        # Cookie de session (no max_age) ou TTL court si ACCESS_TTL défini
         if ACCESS_TTL:
             resp.set_cookie("cv_access", "1", max_age=ACCESS_TTL, path="/", samesite="Lax", httponly=True)
         else:
             resp.set_cookie("cv_access", "1", path="/", samesite="Lax", httponly=True)
         return resp
-    return HTMLResponse(LOGIN_HTML, status_code=401)
+    return HTMLResponse(login_html(), status_code=401)
 
 @app.get("/logout", include_in_schema=False)
 def logout():
@@ -499,8 +505,7 @@ async def list_recipes_simple(request: Request):
         if ings_val.startswith("["):
             try:
                 data = json.loads(ings_val)
-                ings_text = "\n".join([f"{ing.get('item','')} - {ing.get('ml','')}ml"
-                                       for ing in data if ing.get('item')])
+                ings_text = "\n".join([f"{ing.get('item','')} - {ing.get('ml','')}ml" for ing in data if ing.get('item')])
             except:
                 ings_text = r.get("spec_ml") or r.get("spec_oz") or ""
         else:
@@ -576,7 +581,6 @@ def normalize_row(raw: dict) -> Recipe:
             ingredients = [Ingredient(**x) for x in data]
         except Exception:
             pass
-
     return Recipe(
         name=(raw.get("name") or "").strip(),
         slug=slug,
