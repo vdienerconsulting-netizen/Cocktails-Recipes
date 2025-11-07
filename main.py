@@ -13,12 +13,11 @@ from urllib.parse import urlparse, parse_qs
 # ----------------------------------------------------------
 CSV_URL = os.environ.get("CSV_URL", "").strip()
 ACCESS_CODE = os.environ.get("ACCESS_CODE", "orgeatsalécestmeilleur")
-# TTL du cookie (en secondes). Si None => cookie de session
 ACCESS_TTL_ENV = os.environ.get("ACCESS_TTL")
 ACCESS_TTL = int(ACCESS_TTL_ENV) if (ACCESS_TTL_ENV and ACCESS_TTL_ENV.isdigit()) else None
 
 CACHE_TTL = 60  # secondes
-STATIC_BUST = "20251107"  # pour forcer le rechargement des images
+STATIC_BUST = "20251107"
 _cache = {"at": 0.0, "rows": [], "meta": {}}
 
 # ----------------------------------------------------------
@@ -57,7 +56,7 @@ class RecipeSimple(BaseModel):
 # ----------------------------------------------------------
 # APP
 # ----------------------------------------------------------
-app = FastAPI(title="Cocktail Recipes API", version="2.1.1")
+app = FastAPI(title="Cocktail Recipes API", version="2.1.2")
 
 app.add_middleware(
     CORSMiddleware,
@@ -67,7 +66,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Servir /static (mettre les PNG dans static/ui/)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ----------------------------------------------------------
@@ -132,13 +130,11 @@ def require_access(request: Request):
         raise HTTPException(401, detail="Unauthorized")
 
 # ----------------------------------------------------------
-# HTML (sans f-strings) — dark, intro hero -> header, tags masqués,
-# ingrédients en tableau, sections Histoire/Notes, titres MAJUSCULES
+# HTML TEMPLATES (pas de f-strings) + .replace("__BUST__", STATIC_BUST)
 # ----------------------------------------------------------
 def login_html() -> str:
-    bust = STATIC_BUST
-    return "<!DOCTYPE html>\n" \
-"""<html lang="fr">
+    html = """<!DOCTYPE html>
+<html lang="fr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -154,7 +150,6 @@ def login_html() -> str:
     .logos img{ display:block; height:auto; margin:0 auto 8px; }
     .logos .title{ width:min(48%, 460px); }
     .logos .subtitle{ width:min(42%, 400px); opacity:.9; }
-
     .card{ width:100%; max-width:440px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
     .head{ padding:16px; border-bottom:1px solid var(--line); text-align:center; }
     .titleTxt{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:24px; }
@@ -172,8 +167,8 @@ def login_html() -> str:
 <body>
   <div class="wrap">
     <div class="logos">
-      <img class="title" src="/static/ui/chez-vincent-titre.png?v=""" + bust + """" alt="Chez Vincent"/>
-      <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png?v=""" + bust + """" alt="Sous-titre"/>
+      <img class="title" src="/static/ui/chez-vincent-titre.png?v=__BUST__" alt="Chez Vincent"/>
+      <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png?v=__BUST__" alt="Sous-titre"/>
     </div>
     <form class="card" method="GET" action="/enter">
       <div class="head"><div class="titleTxt">BIENVENUE</div></div>
@@ -187,11 +182,11 @@ def login_html() -> str:
   </div>
 </body>
 </html>"""
+    return html.replace("__BUST__", STATIC_BUST)
 
 def app_html() -> str:
-    bust = STATIC_BUST
-    return "<!DOCTYPE html>\n" \
-"""<html lang="fr">
+    html = """<!DOCTYPE html>
+<html lang="fr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -211,14 +206,12 @@ def app_html() -> str:
     *{margin:0;padding:0;box-sizing:border-box}
     body{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 
-    /* INTRO: hero centré seul */
     .intro{ position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; background:var(--bg); }
     .intro .logoWrap{ display:flex; flex-direction:column; align-items:center; gap:8px; }
     .intro img{ display:block; height:auto; }
     .intro .title{ width:min(var(--titleW_full), 480px); }
     .intro .subtitle{ width:min(var(--subtitleW_full), 420px); opacity:.95; }
 
-    /* HEADER sticky (hero réduit) */
     header.heroHeader{
       position: fixed; top:0; left:0; right:0; z-index:999;
       display:flex; flex-direction:column; align-items:center; justify-content:center;
@@ -232,12 +225,10 @@ def app_html() -> str:
     header.heroHeader .title{ width: var(--titleW_small); }
     header.heroHeader .subtitle{ width: var(--subtitleW_small); opacity:.85; }
 
-    /* PAGE */
     .page{ opacity:0; transform: translateY(8px); transition: opacity var(--anim_page), transform var(--anim_page); }
     .page.show{ opacity:1; transform: translateY(0); }
     main{ padding-top: calc(var(--headerH) + 8px); }
 
-    /* Search */
     .search{ padding:16px; border-bottom:1px solid var(--line); }
     .search input{
       width:100%; font:400 16px/1.3 Raleway, sans-serif; padding:10px 2px;
@@ -245,7 +236,6 @@ def app_html() -> str:
     }
     .search input::placeholder{ color:var(--muted); }
 
-    /* Grid */
     .grid{ padding:16px; display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }
     .card{ background:var(--panel); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
     .card-head{ padding:12px; border-bottom:1px solid var(--line); }
@@ -254,7 +244,6 @@ def app_html() -> str:
     .meta{ display:flex; flex-wrap:wrap; gap:8px; font-size:13px; color:var(--muted); }
     .center{ text-align:center; padding:48px 16px; color:var(--muted); }
 
-    /* Modal */
     .modal{ position: fixed; inset:0; display:none; background: rgba(0,0,0,.4); z-index:998; padding:16px; }
     .modal.active{ display:block; }
     .panel{ background:var(--panel); border:1px solid var(--line); border-radius:8px; max-width:900px; margin:5vh auto; overflow:hidden; }
@@ -265,35 +254,30 @@ def app_html() -> str:
     .section{ margin-bottom:18px; }
     .label{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:14px; color:var(--muted); margin-bottom:6px; }
 
-    /* Tableau ingrédients */
     .ing-table{ width:100%; border-collapse:collapse; font-size:14px; }
     .ing-table th, .ing-table td{ border:1px solid var(--line); padding:8px; text-align:left; }
     .ing-table th{ background:#111218; color:var(--text); font-weight:600; }
 
-    /* Bloc texte fallback */
     .ingredients-block{ white-space: pre-line; padding:12px; border:1px solid var(--line); border-radius:6px; background:#111218; font-size:14px; color:var(--text); }
 
     .close{ all:unset; cursor:pointer; float:right; font-size:16px; line-height:1; border-bottom:1px solid var(--text); padding-bottom:1px; color:var(--text); }
   </style>
 </head>
 <body>
-  <!-- INTRO -->
   <div id="intro" class="intro" aria-hidden="false">
     <div class="logoWrap">
-      <img class="title" src="/static/ui/chez-vincent-titre.png?v=""" + bust + """" alt="Chez Vincent"/>
-      <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png?v=""" + bust + """" alt="Sous-titre"/>
+      <img class="title" src="/static/ui/chez-vincent-titre.png?v=__BUST__" alt="Chez Vincent"/>
+      <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png?v=__BUST__" alt="Sous-titre"/>
     </div>
   </div>
 
-  <!-- HEADER -->
   <header id="heroHeader" class="heroHeader" role="banner" aria-hidden="true">
     <div class="logoWrap">
-      <img class="title" src="/static/ui/chez-vincent-titre.png?v=""" + bust + """" alt="Chez Vincent"/>
-      <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png?v=""" + bust + """" alt="Sous-titre"/>
+      <img class="title" src="/static/ui/chez-vincent-titre.png?v=__BUST__" alt="Chez Vincent"/>
+      <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png?v=__BUST__" alt="Sous-titre"/>
     </div>
   </header>
 
-  <!-- PAGE -->
   <div id="page" class="page" aria-hidden="true">
     <main>
       <div class="search"><input id="search" type="text" placeholder="Rechercher un cocktail…"></div>
@@ -301,7 +285,6 @@ def app_html() -> str:
     </main>
   </div>
 
-  <!-- Modal -->
   <div id="modal" class="modal" aria-hidden="true">
     <div class="panel" role="dialog" aria-modal="true">
       <div class="modal-head">
@@ -319,7 +302,6 @@ def app_html() -> str:
     let dataReady = false, minTimeElapsed = false;
     const INTRO_MIN = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--intro_min')) || 900;
 
-    // Timer min d'intro (évite un cut trop sec)
     setTimeout(() => { minTimeElapsed = true; maybeStart(); }, INTRO_MIN);
 
     function maybeStart(){
@@ -362,7 +344,6 @@ def app_html() -> str:
               <div class="item">${escapeHtml(c.glass || '')}</div>
               <div class="item">${escapeHtml(c.method || '')}</div>
             </div>
-            <!-- Tags masqués visuellement, mais conservés pour la recherche -->
           </div>
         </div>`;
       }).join('') + '</div>';
@@ -372,7 +353,7 @@ def app_html() -> str:
       const q = e.target.value.toLowerCase();
       filteredCocktails = cocktails.filter(c =>
         (c.name || '').toLowerCase().includes(q) ||
-        (c.tags || '').toLowerCase().includes(q) // on garde tags pour la recherche
+        (c.tags || '').toLowerCase().includes(q)
       );
       renderCocktails();
     });
@@ -387,7 +368,6 @@ def app_html() -> str:
         `<div>${escapeHtml(r.glass || '')}</div>` +
         `<div>${escapeHtml(r.method || '')}</div>`;
 
-      // Ingrédients (tableau si structurés, sinon fallback texte)
       let ingHtml = '';
       if (Array.isArray(r.ingredients) && r.ingredients.length) {
         ingHtml = `
@@ -446,14 +426,14 @@ def app_html() -> str:
       }[m]));
     }
 
-    // go
     loadCocktails();
   </script>
 </body>
 </html>"""
+    return html.replace("__BUST__", STATIC_BUST)
 
 # ----------------------------------------------------------
-# ROUTES (gate page + API) + logout
+# ROUTES
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def root(request: Request):
@@ -541,7 +521,7 @@ async def list_recipes_simple(request: Request):
             glass=(r.get("glass") or "Non spécifié").strip(),
             method=(r.get("method") or "Non spécifié").strip(),
             ingredients_text=ings_text,
-            tags=(r.get("tags") or "").strip()  # conservé pour la recherche, pas affiché
+            tags=(r.get("tags") or "").strip()
         ))
     return result
 
