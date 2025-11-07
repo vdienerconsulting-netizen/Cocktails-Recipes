@@ -52,7 +52,7 @@ class RecipeSimple(BaseModel):
 # ----------------------------------------------------------
 # APP
 # ----------------------------------------------------------
-app = FastAPI(title="Cocktail Recipes API", version="1.7.0")
+app = FastAPI(title="Cocktail Recipes API", version="1.8.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,7 +62,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Fichiers statiques pour les visuels UI
+# Static (pour les visuels)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ----------------------------------------------------------
@@ -120,7 +120,7 @@ def google_pubhtml_to_csv(url: str) -> str:
         return url
 
 # ----------------------------------------------------------
-# PAGES (HTML) — DA dark minimal
+# PAGES (HTML) — Dark minimal, sans images de drinks
 # ----------------------------------------------------------
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="fr">
@@ -133,18 +133,19 @@ LOGIN_HTML = """<!DOCTYPE html>
   <link href="https://fonts.googleapis.com/css2?family=Bayon&family=Big+Shoulders+Text:wght@400;700&family=Raleway:wght@300;400&display=swap" rel="stylesheet">
   <style>
     :root{
-      --bg:#0f0f14;      /* fond global (très sombre) */
+      --bg:#0f0f14;      /* fond global très sombre */
       --panel:#17181f;   /* panneaux */
       --line:#2a2b31;    /* traits */
       --text:#e5e7eb;    /* texte principal */
-      --muted:#9aa0a6;   /* texte secondaire */
+      --muted:#9aa0a6;   /* secondaire */
     }
     *{margin:0;padding:0;box-sizing:border-box}
+    html,body{height:100%}
     body{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     .hero{ position:relative; text-align:center; padding:40px 16px; border-bottom:1px solid var(--line); }
     .hero h3{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:38px; color:var(--text); }
     .hero img{ width:min(60%,520px); display:block; margin:10px auto 0; }
-    .wrap{ min-height:calc(100vh - 180px); display:flex; align-items:center; justify-content:center; padding:24px; }
+    .wrap{ min-height:calc(100% - 180px); display:flex; align-items:center; justify-content:center; padding:24px; }
     .card{ width:100%; max-width:460px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
     .head{ padding:18px; border-bottom:1px solid var(--line); }
     .title{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:20px; color:var(--text); }
@@ -192,32 +193,42 @@ HTML_APP = """<!DOCTYPE html>
   <link href="https://fonts.googleapis.com/css2?family=Bayon&family=Big+Shoulders+Text:wght@400;700&family=Raleway:wght@300;400&display=swap" rel="stylesheet">
   <style>
     :root{
-      --bg:#0f0f14;      /* fond global très sombre */
-      --panel:#17181f;   /* cartes / modales */
-      --line:#2a2b31;    /* traits */
-      --text:#e5e7eb;    /* texte principal */
-      --muted:#9aa0a6;   /* secondaire */
+      --bg:#0f0f14;
+      --panel:#17181f;
+      --line:#2a2b31;
+      --text:#e5e7eb;
+      --muted:#9aa0a6;
     }
     *{margin:0;padding:0;box-sizing:border-box}
+    html,body{height:100%}
     body{ background:var(--bg); color:var(--text); font-family:Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 
-    /* HERO (anim d’entrée) */
+    /* HERO (entrée) */
     .hero{ position: fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--bg); color:var(--text); z-index:999; }
     .hero.hidden{ display:none; }
-    .hero h3{ font-family: Bayon, sans-serif; letter-spacing:.08em; font-size:clamp(42px,10vw,90px); line-height:1; margin-bottom:.2em; opacity:0; transform:translateY(-40px); animation:fadeDown 1.8s ease-out forwards .05s; text-align:center; }
+    .hero h3{ font-family: Bayon, sans-serif; letter-spacing:.08em; font-size:clamp(42px,10vw,90px); line-height:1; margin-bottom:.2em; opacity:0; transform:translateY(-40px); animation:fadeDown 1.2s ease-out forwards .05s; text-align:center; }
     .hero img{ width:min(60%,520px); display:block; margin:.35rem auto 0; opacity:0; transform:translateY(-20px); }
-    .hero img.title{ animation:fadeUp 1.8s ease-out forwards .8s;}
-    .hero img.sub{   animation:fadeUpS 1.8s ease-out forwards 1.55s;}
-    .hero.fadeout{ animation:heroOut .6s ease-in forwards 2.4s;}
+    .hero img.title{ animation:fadeUp 1.2s ease-out forwards .5s;}
+    .hero img.sub{   animation:fadeUpS 1.2s ease-out forwards 1.0s;}
+    .hero.fadeout{ animation:heroOut .55s ease-in forwards 1.8s;} /* accéléré */
+
+    /* Page container (transition d’apparition) */
+    .page{ opacity:0; transform: translateY(6px); transition: opacity .45s ease, transform .45s ease; }
+    .page.show{ opacity:1; transform: translateY(0); }
+
     @keyframes fadeDown{to{opacity:1; transform:translateY(0);}}
-    @keyframes fadeUp{to{opacity:1; transform:translateY(-10px);}}
-    @keyframes fadeUpS{to{opacity:1; transform:translateY(-5px);}}
+    @keyframes fadeUp{to{opacity:1; transform:translateY(-8px);}}
+    @keyframes fadeUpS{to{opacity:1; transform:translateY(-4px);}}
     @keyframes heroOut{to{opacity:0; visibility:hidden;}}
 
-    /* Header + search */
+    /* Header (avec tes images, pas de texte titre) */
     header{ padding:18px 16px; border-bottom:1px solid var(--line); }
-    .brand{ display:flex; align-items:center; justify-content:center; }
-    .brand-title{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:clamp(18px,3.5vw,24px); letter-spacing:.04em; }
+    .brand{ display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px; }
+    .brand img{ display:block; height:auto; }
+    .brand .title{ width:min(70%,640px); }
+    .brand .subtitle{ width:min(60%,520px); opacity:.9; }
+
+    /* Search */
     .search{ padding:16px; border-bottom:1px solid var(--line); }
     .search input{
       width:100%; font:400 16px/1.3 Raleway, sans-serif; padding:10px 2px;
@@ -225,13 +236,11 @@ HTML_APP = """<!DOCTYPE html>
     }
     .search input::placeholder{ color:var(--muted); }
 
-    /* Grid (cartes sans images, look plat) */
+    /* Grid (cartes sans images) */
     .grid{ padding:16px; display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }
     .card{ background:var(--panel); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
     .card-head{ padding:12px; border-bottom:1px solid var(--line); }
-    .name{
-      font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:20px; line-height:1.1; color:var(--text);
-    }
+    .name{ font-family:"Big Shoulders Text",sans-serif; font-weight:700; font-size:20px; line-height:1.1; color:var(--text); }
     .card-body{ padding:12px; }
     .meta{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px; font-size:13px; color:var(--muted); }
     .meta .item{ border-bottom:1px solid var(--line); padding-bottom:1px; }
@@ -240,7 +249,7 @@ HTML_APP = """<!DOCTYPE html>
 
     .center{ text-align:center; padding:48px 16px; color:var(--muted); }
 
-    /* Modal (sans image) */
+    /* Modal */
     .modal{ position: fixed; inset:0; display:none; background: rgba(0,0,0,.4); z-index:998; padding:16px; }
     .modal.active{ display:block; }
     .panel{ background:var(--panel); border:1px solid var(--line); border-radius:8px; max-width:780px; margin:5vh auto; overflow:hidden; }
@@ -250,10 +259,7 @@ HTML_APP = """<!DOCTYPE html>
     .modal-body{ padding:16px; color:var(--text); }
     .section{ margin-bottom:18px; }
     .label{ font-family:Bayon,sans-serif; letter-spacing:.06em; font-size:14px; color:var(--muted); margin-bottom:6px; }
-    .ingredients{
-      white-space: pre-line; padding:12px; border:1px solid var(--line);
-      border-radius:6px; background:#111218; font-size:14px; color:var(--text);
-    }
+    .ingredients{ white-space: pre-line; padding:12px; border:1px solid var(--line); border-radius:6px; background:#111218; font-size:14px; color:var(--text); }
     .close{ all:unset; cursor:pointer; float:right; font-size:16px; line-height:1; border-bottom:1px solid var(--text); padding-bottom:1px; color:var(--text); }
   </style>
 </head>
@@ -262,12 +268,21 @@ HTML_APP = """<!DOCTYPE html>
   <div id="hero" class="hero fadeout">
     <h3>BIENVENUE</h3>
     <img class="title" src="/static/ui/chez-vincent-titre.png" alt="Chez Vincent - Buvette Cocktail"/>
-    <img class="sub"   src="/static/ui/chez-vincent-soustitre.png" alt="Sous-titre"/>
+    <img class="sub subtitle"   src="/static/ui/chez-vincent-soustitre.png" alt="Sous-titre"/>
   </div>
 
-  <header><div class="brand"><div class="brand-title">CHEZ VINCENT — Cocktails</div></div></header>
-  <div class="search"><input id="search" type="text" placeholder="Rechercher un cocktail…"></div>
-  <div id="app"><div class="center">Chargement des recettes…</div></div>
+  <!-- PAGE (fade-in après le hero) -->
+  <div id="page" class="page">
+    <header>
+      <div class="brand">
+        <img class="title" src="/static/ui/chez-vincent-titre.png" alt="Titre"/>
+        <img class="subtitle" src="/static/ui/chez-vincent-soustitre.png" alt="Sous-titre"/>
+      </div>
+    </header>
+
+    <div class="search"><input id="search" type="text" placeholder="Rechercher un cocktail…"></div>
+    <div id="app"><div class="center">Chargement des recettes…</div></div>
+  </div>
 
   <!-- Modal -->
   <div id="modal" class="modal" aria-hidden="true">
@@ -285,24 +300,31 @@ HTML_APP = """<!DOCTYPE html>
     const API_URL = '/api/recipes/simple';
     let cocktails = []; let filteredCocktails = [];
 
-    function hideHero(force=false){
-      const h = document.getElementById('hero');
-      if(!h) return;
-      if(force){ h.classList.add('hidden'); return; }
-      setTimeout(()=>{ h.classList.add('hidden'); }, 2600);
+    function hideHeroAndShowPage(immediate=false){
+      const hero = document.getElementById('hero');
+      const page = document.getElementById('page');
+      if(immediate){
+        hero.classList.add('hidden');
+        page.classList.add('show');
+        return;
+      }
+      // masque le hero après son fadeout, puis fade-in de la page
+      setTimeout(()=>{ hero.classList.add('hidden'); page.classList.add('show'); }, 1850);
     }
 
     async function loadCocktails() {
       try {
-        const response = await fetch(API_URL, { credentials: 'same-origin' });
-        if (!response.ok) throw new Error('Erreur');
-        cocktails = await response.json();
+        const res = await fetch(API_URL, { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('Erreur');
+        cocktails = await res.json();
         filteredCocktails = cocktails;
         renderCocktails();
-        hideHero(true);
+        // data ok -> on montre la page tout de suite
+        hideHeroAndShowPage(true);
       } catch (e) {
         document.getElementById('app').innerHTML = '<div class="center">Erreur de chargement</div>';
-        hideHero();
+        // pas de data -> on laisse l’anim puis on enchaîne
+        hideHeroAndShowPage(false);
       }
     }
 
@@ -380,8 +402,8 @@ HTML_APP = """<!DOCTYPE html>
       }[m]));
     }
 
+    // Lancer
     loadCocktails();
-    hideHero();
   </script>
 </body>
 </html>"""
@@ -394,14 +416,13 @@ def has_access(request: Request) -> bool:
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def root(request: Request):
-    """Si pas de cookie, on affiche la page d’accès (dark)."""
+    # Gate par code (cookie)
     if not has_access(request):
         return HTMLResponse(LOGIN_HTML)
     return HTML_APP
 
 @app.get("/enter", include_in_schema=False)
 def enter(request: Request, code: str = ""):
-    """Validation du code et cookie (12 h)."""
     if code == ACCESS_CODE:
         resp = RedirectResponse(url="/", status_code=303)
         resp.set_cookie("cv_access", "1", max_age=60*60*12, path="/")
