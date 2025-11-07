@@ -1,4 +1,3 @@
-# main.py
 from fastapi import FastAPI, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -40,10 +39,19 @@ class Recipe(BaseModel):
     source: Optional[str] = None
     last_update: Optional[str] = None
 
+# Nouveau modèle simplifié pour FlutterFlow
+class RecipeSimple(BaseModel):
+    id: str  # slug utilisé comme ID
+    name: str
+    glass: str
+    method: str
+    ingredients_text: str  # Version texte des ingrédients
+    tags: str  # Tags en format texte séparé par virgules
+
 # ----------------------------------------------------------
 # APP
 # ----------------------------------------------------------
-app = FastAPI(title="Cocktail Recipes API", version="1.3.0")
+app = FastAPI(title="Cocktail Recipes API", version="1.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -94,18 +102,21 @@ def google_pubhtml_to_csv(url: str) -> str:
     """Convertit automatiquement un lien pubhtml en lien CSV"""
     try:
         u = urlparse(url)
-        if "docs.google.com" in u.netloc and "/spreadsheets/" in u.path and u.path.endswith("/pubhtml"):
-            new_path = u.path[:-7]  # retire 'pubhtml'
-            if not new_path.endswith("/"):
-                new_path += "/"
-            new_path += "pub"
-            q = parse_qs(u.query, keep_blank_values=True)
-            q["output"] = ["csv"]
-            new_query = urlencode({k: v[0] if isinstance(v, list) else v for k, v in q.items()})
-            fixed = urlunparse((u.scheme, u.netloc, new_path, "", new_query, ""))
-            return fixed
+        if "docs.google.com" in u.netloc and "/spreadsheets/" in u.path:
+            # Extraire l'ID du spreadsheet
+            if "/d/e/" in u.path:
+                # Format: /spreadsheets/d/e/DOCUMENT_ID/...
+                parts = u.path.split("/")
+                if len(parts) >= 5:
+                    doc_id = parts[4]
+                    q = parse_qs(u.query, keep_blank_values=True)
+                    gid = q.get("gid", ["0"])[0]
+                    # Construire l'URL CSV correcte
+                    new_url = f"https://docs.google.com/spreadsheets/d/e/{doc_id}/pub?gid={gid}&single=true&output=csv"
+                    return new_url
         return url
-    except Exception:
+    except Exception as e:
+        print(f"Erreur conversion URL: {e}")
         return url
 
 # ----------------------------------------------------------
@@ -115,21 +126,74 @@ def google_pubhtml_to_csv(url: str) -> str:
 def root():
     return {
         "ok": True,
-        "endpoints": ["/health", "/recipes", "/recipes/names", "/recipes/{slug}", "/debug/source"]
+        "endpoints": [
+            "/health", 
+            "/recipes", 
+            "/recipes/simple",  # NOUVEAU
+            "/recipes/names", 
+            "/recipes/{slug}", 
+            "/debug/source",
+            "/debug/test-csv"  # NOUVEAU
+        ]
     }
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "csv_url_set": bool(CSV_URL)}
+    try:
+        # Test si on peut charger les données
+        rows = await load_rows()
+        return {
+            "ok": True, 
+            "csv_url_set": bool(CSV_URL),
+            "recipes_count": len(rows),
+            "status": "operational"
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e),
+            "csv_url_set": bool(CSV_URL)
+        }
+
+@app.get("/debug/test-csv", include_in_schema=False)
+async def debug_test_csv():
+    """Teste la connexion au CSV et affiche les données brutes"""
+    if not CSV_URL:
+        return {"error": "CSV_URL non définie"}
+    
+    effective_url = google_pubhtml_to_csv(CSV_URL)
+    
+    try:
+        async with httpx.AsyncClient(timeout=25, follow_redirects=True) as client:
+            resp = await client.get(effective_url)
+            resp.raise_for_status()
+            text = resp.text[:2000]  # Premiers 2000 caractères
+            
+            return {
+                "original_url": CSV_URL,
+                "effective_url": effective_url,
+                "status_code": resp.status_code,
+                "content_preview": text,
+                "is_html": "<html" in text.lower(),
+                "content_type": resp.headers.get("content-type")
+            }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "original_url": CSV_URL,
+            "effective_url": effective_url
+        }
 
 @app.get("/debug/source", include_in_schema=False)
 async def debug_source():
     await load_rows(force=True)
     meta = _cache.get("meta", {})
     return {
+        "csv_url_original": CSV_URL,
         "csv_url_effective": meta.get("effective_url"),
         "rows_count": len(_cache.get("rows") or []),
         "fieldnames_original": meta.get("fieldnames_original"),
+        "first_row_sample": _cache.get("rows")[0] if _cache.get("rows") else None,
         "note": "Si rows_count = 0, vérifie le lien Google Sheet et le partage public."
     }
 
@@ -137,6 +201,40 @@ async def debug_source():
 async def list_recipes():
     rows = await load_rows()
     return [normalize_row(r) for r in rows]
+
+# NOUVEAU ENDPOINT SIMPLIFIÉ POUR FLUTTERFLOW
+@app.get("/recipes/simple", response_model=List[RecipeSimple])
+async def list_recipes_simple():
+    """Version simplifiée pour FlutterFlow - plus facile à afficher"""
+    rows = await load_rows()
+    result = []
+    
+    for r in rows:
+        # Convertir les ingrédients en texte simple
+        ingredients_text = ""
+        ings_val = (r.get("ingredients") or "").strip()
+        if ings_val.startswith("["):
+            try:
+                data = json.loads(ings_val)
+                ingredients_text = "\n".join([
+                    f"{ing.get('item', '')} - {ing.get('ml', '')}ml" 
+                    for ing in data if ing.get('item')
+                ])
+            except:
+                ingredients_text = r.get("spec_ml") or r.get("spec_oz") or ""
+        else:
+            ingredients_text = r.get("spec_ml") or r.get("spec_oz") or ""
+        
+        result.append(RecipeSimple(
+            id=slugify(r.get("slug") or r.get("name", "")),
+            name=(r.get("name") or "").strip(),
+            glass=(r.get("glass") or "Non spécifié").strip(),
+            method=(r.get("method") or "Non spécifié").strip(),
+            ingredients_text=ingredients_text,
+            tags=(r.get("tags") or "").strip()
+        ))
+    
+    return result
 
 @app.get("/recipes/{slug}", response_model=Recipe)
 async def get_recipe(slug: str):
@@ -165,11 +263,12 @@ async def load_rows(force: bool = False):
         return _cache["rows"]
 
     effective_url = google_pubhtml_to_csv(CSV_URL)
+    print(f"Loading CSV from: {effective_url}")  # Log pour debug
 
     async with httpx.AsyncClient(
         timeout=25,
         follow_redirects=True,
-        headers={"User-Agent": "cocktail-recipes-api/1.3", "Accept": "text/csv,*/*"},
+        headers={"User-Agent": "cocktail-recipes-api/1.4", "Accept": "text/csv,*/*"},
     ) as client:
         resp = await client.get(effective_url)
         resp.raise_for_status()
@@ -201,6 +300,8 @@ async def load_rows(force: bool = False):
         "at": now,
         "meta": {"effective_url": effective_url, "fieldnames_original": reader.fieldnames},
     })
+    
+    print(f"Loaded {len(rows)} recipes")  # Log pour debug
     return rows
 
 # ----------------------------------------------------------
