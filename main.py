@@ -121,304 +121,344 @@ def google_pubhtml_to_csv(url: str) -> str:
 HTML_APP = """<!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#1a1a2e">
-    <title>🍸 Cocktails Bar</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        :root {
-            --primary: #e94560;
-            --bg-dark: #0f0f23;
-            --bg-card: #1a1a2e;
-            --text: #eaeaea;
-            --text-dim: #a8a8b3;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg-dark);
-            color: var(--text);
-            padding-bottom: 20px;
-        }
-        header {
-            background: linear-gradient(135deg, var(--primary) 0%, #c72a4d 100%);
-            padding: 20px;
-            text-align: center;
-            box-shadow: 0 4px 20px rgba(233, 69, 96, 0.3);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-        h1 { font-size: 1.8rem; font-weight: 700; }
-        .search-bar {
-            padding: 15px 20px;
-            background: var(--bg-card);
-        }
-        #search {
-            width: 100%;
-            padding: 12px 20px;
-            border: 2px solid #2d2d44;
-            border-radius: 25px;
-            background: var(--bg-dark);
-            color: var(--text);
-            font-size: 1rem;
-            outline: none;
-        }
-        #search:focus { border-color: var(--primary); }
-        .loading {
-            text-align: center;
-            padding: 40px 20px;
-            color: var(--text-dim);
-        }
-        .spinner {
-            border: 3px solid #2d2d44;
-            border-top: 3px solid var(--primary);
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 15px;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .error {
-            background: #ff4444;
-            color: white;
-            padding: 15px 20px;
-            margin: 15px 20px;
-            border-radius: 10px;
-        }
-        .cocktails-grid {
-            padding: 15px;
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 15px;
-        }
-        .cocktail-card {
-            background: var(--bg-card);
-            border-radius: 15px;
-            cursor: pointer;
-            transition: transform 0.2s;
-            border: 1px solid #2d2d44;
-        }
-        .cocktail-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 8px 25px rgba(233, 69, 96, 0.2);
-        }
-        .card-header {
-            background: linear-gradient(135deg, #2d2d44 0%, #3a3a52 100%);
-            padding: 15px;
-            border-bottom: 2px solid var(--primary);
-        }
-        .card-name {
-            font-size: 1.3rem;
-            font-weight: 600;
-            text-transform: capitalize;
-        }
-        .card-body { padding: 15px; }
-        .card-info {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 10px;
-            flex-wrap: wrap;
-        }
-        .badge {
-            background: #2d2d44;
-            padding: 5px 12px;
-            border-radius: 15px;
-            font-size: 0.85rem;
-            color: var(--text-dim);
-        }
-        .badge.glass {
-            background: rgba(233, 69, 96, 0.2);
-            color: var(--primary);
-        }
-        .tags {
-            margin-top: 10px;
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-        }
-        .tag {
-            background: #0f0f23;
-            color: var(--text-dim);
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-        }
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.9);
-            z-index: 1000;
-            overflow-y: auto;
-        }
-        .modal.active {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-        .modal-content {
-            background: var(--bg-card);
-            border-radius: 20px;
-            max-width: 600px;
-            width: 100%;
-            max-height: 90vh;
-            overflow-y: auto;
-        }
-        .modal-header {
-            background: linear-gradient(135deg, var(--primary) 0%, #c72a4d 100%);
-            padding: 25px;
-            position: relative;
-        }
-        .close-btn {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            color: white;
-            width: 35px;
-            height: 35px;
-            border-radius: 50%;
-            font-size: 1.5rem;
-            cursor: pointer;
-        }
-        .modal-title {
-            font-size: 1.8rem;
-            font-weight: 700;
-            text-transform: capitalize;
-        }
-        .modal-body { padding: 25px; }
-        .detail-section { margin-bottom: 25px; }
-        .detail-label {
-            color: var(--primary);
-            font-weight: 600;
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            margin-bottom: 8px;
-        }
-        .ingredients-list {
-            background: var(--bg-dark);
-            padding: 15px;
-            border-radius: 10px;
-            border-left: 3px solid var(--primary);
-            white-space: pre-line;
-        }
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--text-dim);
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chez Vincent — Cocktails</title>
+  <meta name="description" content="Buvette cocktail — liste des recettes" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bayon&family=Big+Shoulders+Text:wght@400;700&family=Raleway:wght@300;400&display=swap" rel="stylesheet">
+
+  <style>
+    /* ---------- Design System ---------- */
+    :root{
+      --vert:#1f6047;      /* fond hero / accents */
+      --sable:#efe9dc;     /* texte clair sur vert + fonds */
+      --encre:#222;        /* texte principal sur fond clair */
+      --gris:#b8b2a6;      /* texte secondaire */
+      --ligne:#ddd;        /* séparateurs plats */
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{
+      font-family: Raleway, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--encre);
+      background: var(--sable);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ---------- Hero (entrée animée) ---------- */
+    .hero{
+      position: fixed; inset:0;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      background: var(--vert);
+      color: var(--sable);
+      z-index: 999;
+      overflow:hidden;
+    }
+    .hero.hidden{ display:none; } /* masqué après anim */
+    .hero h3{
+      font-family: Bayon, sans-serif;
+      letter-spacing: .08em;
+      font-size: clamp(42px, 10vw, 90px);
+      line-height: 1;
+      margin-bottom: .2em;
+      opacity:0; transform: translateY(-40px);
+      animation: fadeDown 1.8s ease-out forwards .05s;
+      text-align:center;
+    }
+    .hero img{
+      width:min(60%, 520px);
+      display:block;
+      margin:.35rem auto 0 auto;
+      opacity:0; transform: translateY(-20px);
+    }
+    .hero img.title{ animation: fadeUp 1.8s ease-out forwards .8s; }
+    .hero img.sub  { animation: fadeUpS 1.8s ease-out forwards 1.55s; }
+
+    /* fade out de tout l’écran hero pour dévoiler l’app */
+    .hero.fadeout{
+      animation: heroOut .6s ease-in forwards 2.4s;
+    }
+
+    @keyframes fadeDown{
+      to{opacity:1; transform: translateY(0);}
+    }
+    @keyframes fadeUp{
+      to{opacity:1; transform: translateY(-10px);}
+    }
+    @keyframes fadeUpS{
+      to{opacity:1; transform: translateY(-5px);}
+    }
+    @keyframes heroOut{
+      to{opacity:0; visibility:hidden;}
+    }
+
+    /* ---------- En-tête minimal ---------- */
+    header{
+      padding: 18px 16px;
+      border-bottom: 1px solid var(--ligne);
+      background: transparent;
+    }
+    .brand{
+      display:flex; align-items:center; justify-content:center;
+      gap: 10px;
+      text-align:center;
+    }
+    .brand-title{
+      font-family: "Big Shoulders Text", sans-serif;
+      font-weight:700;
+      font-size: clamp(18px, 3.5vw, 24px);
+      letter-spacing:.04em;
+    }
+
+    /* ---------- Barre de recherche ---------- */
+    .search{
+      padding: 16px;
+      border-bottom: 1px solid var(--ligne);
+      background: transparent;
+    }
+    .search input{
+      width:100%;
+      font: 400 16px/1.3 Raleway, sans-serif;
+      padding: 10px 2px;
+      border: none;
+      outline: none;
+      background: transparent;
+      border-bottom: 1px solid var(--encre);
+      color: var(--encre);
+    }
+    .search input::placeholder{ color:#666; }
+
+    /* ---------- Grille cartes ---------- */
+    .grid{
+      padding: 16px;
+      display:grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .card{
+      background: #fff;
+      border: 1px solid var(--ligne);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .card-head{
+      padding: 12px;
+      border-bottom: 1px solid var(--ligne);
+    }
+    .name{
+      font-family: "Big Shoulders Text", sans-serif;
+      font-weight:700;
+      font-size: 20px;
+      line-height:1.1;
+      text-transform: none;
+    }
+    .card-body{ padding: 12px; }
+    .meta{
+      display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px;
+      font-size: 13px; color:#444;
+    }
+    .meta .item{ border-bottom:1px solid #bbb; padding-bottom:1px; }
+
+    .tags{
+      display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;
+      font-size: 12px; color:#555;
+    }
+    .tag{ border:1px solid var(--ligne); border-radius: 999px; padding:3px 8px; }
+
+    /* ---------- État chargement / vide ---------- */
+    .center{ text-align:center; padding: 48px 16px; color:#666; }
+
+    /* ---------- Modal minimal ---------- */
+    .modal{
+      position: fixed; inset:0; display:none;
+      background: rgba(0,0,0,.06); /* voile très léger */
+      z-index: 998;
+      padding: 16px;
+    }
+    .modal.active{ display:block; }
+    .modal-panel{
+      background:#fff; border:1px solid var(--ligne);
+      border-radius:8px; max-width:680px; margin: 5vh auto;
+      overflow:hidden;
+    }
+    .modal-head{
+      padding:16px; border-bottom:1px solid var(--ligne);
+      background:#fff;
+    }
+    .modal-title{
+      font-family:"Big Shoulders Text", sans-serif;
+      font-size: 24px; font-weight:700; line-height:1.1;
+    }
+    .modal-meta{ margin-top:6px; font-size:13px; color:#444; display:flex; gap:12px; flex-wrap:wrap; }
+    .modal-body{ padding:16px; }
+    .section{ margin-bottom:18px; }
+    .label{
+      font-family: Bayon, sans-serif;
+      letter-spacing:.06em;
+      font-size:14px; color:#333; margin-bottom:6px;
+    }
+    .ingredients{
+      white-space: pre-line;
+      padding:12px; border:1px solid var(--ligne); border-radius:6px; background:#fafafa;
+      font-size:14px; color:#222;
+    }
+    .close{
+      all:unset; cursor:pointer; float:right; font-size:16px; line-height:1;
+      border-bottom:1px solid #222; padding-bottom:1px;
+    }
+  </style>
 </head>
 <body>
-    <header><h1>🍸 Cocktails Bar</h1></header>
-    <div class="search-bar">
-        <input type="text" id="search" placeholder="Rechercher un cocktail...">
+  <!-- HERO overlay (anim d’entrée) -->
+  <div id="hero" class="hero fadeout">
+    <h3>BIENVENUE</h3>
+    <img class="title" src="/chez-vincent-titre.png" alt="Chez Vincent - Buvette Cocktail" />
+    <img class="sub"   src="/chez-vincent-soustitre.png" alt="Sous-titre" />
+  </div>
+
+  <header>
+    <div class="brand">
+      <div class="brand-title">CHEZ VINCENT — Cocktails</div>
     </div>
-    <div id="app">
-        <div class="loading">
-            <div class="spinner"></div>
-            <p>Chargement des recettes...</p>
-        </div>
+  </header>
+
+  <div class="search">
+    <input id="search" type="text" placeholder="Rechercher un cocktail…">
+  </div>
+
+  <div id="app">
+    <div class="center">Chargement des recettes…</div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="modal-panel" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <button class="close" onclick="closeModal()">fermer</button>
+        <div class="modal-title" id="modalTitle"></div>
+        <div class="modal-meta" id="modalQuickInfo"></div>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
     </div>
-    <div id="modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <button class="close-btn" onclick="closeModal()">×</button>
-                <h2 class="modal-title" id="modalTitle"></h2>
-                <div class="card-info" id="modalQuickInfo"></div>
+  </div>
+
+  <script>
+    const API_URL = '/api/recipes/simple';
+    let cocktails = [];
+    let filteredCocktails = [];
+
+    // Masquer le hero après l’anim (ou dès qu’on a les data)
+    function hideHero(force=false){
+      const h = document.getElementById('hero');
+      if(!h) return;
+      if(force){ h.classList.add('hidden'); return; }
+      // L'anim fadeout dure 0.6s avec un délai intégré de 2.4s => on masque après ~2.6s
+      setTimeout(()=>{ h.classList.add('hidden'); }, 2600);
+    }
+
+    async function loadCocktails() {
+      try {
+        const response = await fetch(API_URL);
+        if (!response.ok) throw new Error('Erreur');
+        cocktails = await response.json();
+        filteredCocktails = cocktails;
+        renderCocktails();
+        hideHero(true); // si data déjà là, on masque tout de suite
+      } catch (e) {
+        document.getElementById('app').innerHTML = '<div class="center">Erreur de chargement</div>';
+        hideHero(); // sinon, on laisse l’anim puis on masque
+      }
+    }
+
+    function renderCocktails() {
+      const app = document.getElementById('app');
+      if (!filteredCocktails.length) {
+        app.innerHTML = '<div class="center">Aucun cocktail trouvé</div>';
+        return;
+      }
+      app.innerHTML = '<div class="grid">' + filteredCocktails.map(c => `
+        <div class="card" onclick="showDetails('${c.id}')">
+          <div class="card-head"><div class="name">${escapeHtml(c.name)}</div></div>
+          <div class="card-body">
+            <div class="meta">
+              <div class="item">${escapeHtml(c.glass || '')}</div>
+              <div class="item">${escapeHtml(c.method || '')}</div>
             </div>
-            <div class="modal-body" id="modalBody"></div>
+            ${
+              c.tags
+              ? '<div class="tags">' + c.tags.split(',').map(t => (
+                  '<span class="tag">' + escapeHtml(t.trim()) + '</span>'
+                )).join('') + '</div>'
+              : ''
+            }
+          </div>
         </div>
-    </div>
-    <script>
-        const API_URL = '/api/recipes/simple';
-        let cocktails = [];
-        let filteredCocktails = [];
+      `).join('') + '</div>';
+    }
 
-        async function loadCocktails() {
-            try {
-                const response = await fetch(API_URL);
-                if (!response.ok) throw new Error('Erreur');
-                cocktails = await response.json();
-                filteredCocktails = cocktails;
-                renderCocktails();
-            } catch (error) {
-                document.getElementById('app').innerHTML = '<div class="error">⚠️ Erreur de chargement</div>';
-            }
-        }
+    document.getElementById('search').addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      filteredCocktails = cocktails.filter(c =>
+        (c.name || '').toLowerCase().includes(q) ||
+        (c.tags || '').toLowerCase().includes(q)
+      );
+      renderCocktails();
+    });
 
-        function renderCocktails() {
-            const app = document.getElementById('app');
-            if (filteredCocktails.length === 0) {
-                app.innerHTML = '<div class="empty-state"><p>Aucun cocktail trouvé</p></div>';
-                return;
-            }
-            app.innerHTML = '<div class="cocktails-grid">' + filteredCocktails.map(c => `
-                <div class="cocktail-card" onclick="showDetails('${c.id}')">
-                    <div class="card-header">
-                        <div class="card-name">${c.name}</div>
-                    </div>
-                    <div class="card-body">
-                        <div class="card-info">
-                            <span class="badge glass">🥃 ${c.glass}</span>
-                            <span class="badge">⚡ ${c.method}</span>
-                        </div>
-                        ${c.tags ? '<div class="tags">' + c.tags.split(',').map(t => 
-                            '<span class="tag">#' + t.trim() + '</span>'
-                        ).join('') + '</div>' : ''}
-                    </div>
-                </div>
-            `).join('') + '</div>';
-        }
+    function showDetails(id) {
+      const c = cocktails.find(x => x.id === id);
+      if (!c) return;
+      document.getElementById('modalTitle').textContent = c.name || '';
+      document.getElementById('modalQuickInfo').innerHTML =
+        `<div>${escapeHtml(c.glass || '')}</div>` +
+        `<div>${escapeHtml(c.method || '')}</div>`;
+      document.getElementById('modalBody').innerHTML =
+        (c.ingredients_text
+          ? `<div class="section">
+               <div class="label">INGRÉDIENTS</div>
+               <div class="ingredients">${escapeHtml(c.ingredients_text)}</div>
+             </div>` : ''
+        ) +
+        (c.tags
+          ? `<div class="section">
+               <div class="label">TAGS</div>
+               <div class="tags">${
+                 c.tags.split(',').map(t => `<span class="tag">${escapeHtml(t.trim())}</span>`).join('')
+               }</div>
+             </div>` : ''
+        );
+      const m = document.getElementById('modal');
+      m.classList.add('active');
+      m.setAttribute('aria-hidden','false');
+    }
 
-        document.getElementById('search').addEventListener('input', (e) => {
-            const q = e.target.value.toLowerCase();
-            filteredCocktails = cocktails.filter(c => 
-                c.name.toLowerCase().includes(q) || (c.tags && c.tags.toLowerCase().includes(q))
-            );
-            renderCocktails();
-        });
+    function closeModal(){
+      const m = document.getElementById('modal');
+      m.classList.remove('active');
+      m.setAttribute('aria-hidden','true');
+    }
 
-        function showDetails(id) {
-            const c = cocktails.find(x => x.id === id);
-            if (!c) return;
-            document.getElementById('modalTitle').textContent = c.name;
-            document.getElementById('modalQuickInfo').innerHTML = 
-                '<span class="badge glass">🥃 ' + c.glass + '</span>' +
-                '<span class="badge">⚡ ' + c.method + '</span>';
-            document.getElementById('modalBody').innerHTML = 
-                (c.ingredients_text ? 
-                    '<div class="detail-section"><div class="detail-label">🍹 Ingrédients</div>' +
-                    '<div class="ingredients-list">' + c.ingredients_text + '</div></div>' : '') +
-                (c.tags ? 
-                    '<div class="detail-section"><div class="detail-label">🏷️ Tags</div><div class="tags">' +
-                    c.tags.split(',').map(t => '<span class="tag">#' + t.trim() + '</span>').join('') +
-                    '</div></div>' : '');
-            document.getElementById('modal').classList.add('active');
-        }
+    // Fermer en cliquant hors panneau
+    document.getElementById('modal').addEventListener('click', (e)=>{
+      if(e.target.id === 'modal') closeModal();
+    });
 
-        function closeModal() {
-            document.getElementById('modal').classList.remove('active');
-        }
+    // petite util d’échappement
+    function escapeHtml(s){
+      return (s||'').replace(/[&<>"']/g, m => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[m]));
+    }
 
-        document.getElementById('modal').addEventListener('click', (e) => {
-            if (e.target.id === 'modal') closeModal();
-        });
-
-        loadCocktails();
-    </script>
+    // Lancer
+    loadCocktails();
+    hideHero(); // au cas où on n’ait pas les data tout de suite
+  </script>
 </body>
 </html>"""
+
 
 # ----------------------------------------------------------
 # ROUTES
